@@ -5,6 +5,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>生活倒影</title>
   
+  <!-- 應用程式圖示設定 -->
+  <link rel="icon" href="IMG_5386.jpeg">
+  <link rel="apple-touch-icon" href="IMG_5386.jpeg">
+  
   <!-- 載入 Tailwind CSS -->
   <script src="https://cdn.tailwindcss.com"></script>
   
@@ -38,7 +42,7 @@
   <!-- React 應用程式的掛載點 -->
   <div id="root"></div>
 
-  <!-- React 程式碼開始 -->
+  <!-- React 程式碼 -->
   <script type="text/babel" data-type="module">
     import React, { useState, useEffect, useRef } from 'react';
     import { createRoot } from 'react-dom/client';
@@ -106,7 +110,7 @@
       const [itemPrice, setItemPrice] = useState('');
       const [itemDate, setItemDate] = useState(getTodayString());
 
-      // --- 整合個人資料 Modal 與數據 ---
+      // --- 個人資料 Modal 與數據 ---
       const [isProfileOpen, setIsProfileOpen] = useState(false);
       const [isSavingProfile, setIsSavingProfile] = useState(false);
       const [profileSaveMsg, setProfileSaveMsg] = useState(null); 
@@ -168,6 +172,23 @@
         const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
           setUser(currentUser);
           if (currentUser) {
+            // 【快取加速】：一偵測到登入，立刻在背景從本地 localStorage 恢復上一次的資料，秒開應用
+            try {
+              const cachedProfile = localStorage.getItem(`life_reflection_profile_${currentUser.uid}`);
+              if (cachedProfile) setProfileData(JSON.parse(cachedProfile));
+
+              const cachedTxs = localStorage.getItem(`life_reflection_txs_${currentUser.uid}`);
+              if (cachedTxs) setTransactions(JSON.parse(cachedTxs));
+
+              const cachedSubs = localStorage.getItem(`life_reflection_subs_${currentUser.uid}`);
+              if (cachedSubs) setSubscriptions(JSON.parse(cachedSubs));
+
+              const cachedItems = localStorage.getItem(`life_reflection_items_${currentUser.uid}`);
+              if (cachedItems) setItems(JSON.parse(cachedItems));
+            } catch (e) {
+              console.warn("讀取本地快取失敗", e);
+            }
+
             setProfileData(prev => ({
               ...prev,
               nickname: currentUser.displayName || prev.nickname,
@@ -189,39 +210,47 @@
 
         const basePath = `artifacts/${APP_ID}/users/${user.uid}`;
 
+        // 監聽個人設定並寫入本地快取
         const unsubProfile = onSnapshot(doc(db, basePath, 'profile', 'info'), (docSnap) => {
           if (docSnap.exists()) {
             const data = docSnap.data();
-            setProfileData(prev => ({
-              ...prev,
+            const updated = {
               nickname: data.nickname || user.displayName || '',
               avatar: data.avatar || '',
               dashboardBg: data.dashboardBg || ''
-            }));
+            };
+            setProfileData(updated);
+            localStorage.setItem(`life_reflection_profile_${user.uid}`, JSON.stringify(updated));
           }
         });
 
+        // 監聽收支紀錄並寫入本地快取
         const unsubTx = onSnapshot(query(collection(db, basePath, 'transactions')), 
           (snap) => {
             const data = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
             data.sort((a, b) => b.createdAt - a.createdAt); 
             setTransactions(data);
+            localStorage.setItem(`life_reflection_txs_${user.uid}`, JSON.stringify(data));
           }
         );
 
+        // 監聽訂閱紀錄並寫入本地快取
         const unsubSub = onSnapshot(query(collection(db, basePath, 'subscriptions')), 
           (snap) => {
             const data = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
             data.sort((a, b) => b.createdAt - a.createdAt);
             setSubscriptions(data);
+            localStorage.setItem(`life_reflection_subs_${user.uid}`, JSON.stringify(data));
           }
         );
 
+        // 監聽分攤物品並寫入本地快取
         const unsubItem = onSnapshot(query(collection(db, basePath, 'items')), 
           (snap) => {
             const data = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
             data.sort((a, b) => b.createdAt - a.createdAt);
             setItems(data);
+            localStorage.setItem(`life_reflection_items_${user.uid}`, JSON.stringify(data));
           }
         );
 
@@ -310,6 +339,13 @@
       };
 
       const handleLogout = async () => {
+        if (user) {
+          // 清除當前帳戶本地快取避免混淆
+          localStorage.removeItem(`life_reflection_profile_${user.uid}`);
+          localStorage.removeItem(`life_reflection_txs_${user.uid}`);
+          localStorage.removeItem(`life_reflection_subs_${user.uid}`);
+          localStorage.removeItem(`life_reflection_items_${user.uid}`);
+        }
         await signOut(auth);
         setIsProfileOpen(false);
         setActiveTab('dashboard');
@@ -512,6 +548,7 @@
         setEditDialog({ isOpen: false, type: '', id: '', originalData: null, data: null });
       };
 
+
       // --- 頁面渲染 ---
 
       if (authLoading) {
@@ -525,7 +562,7 @@
       if (!user) {
         return (
           <div className="min-h-screen bg-gradient-to-br from-teal-50 to-cyan-100 flex items-center justify-center p-4">
-            <div className="bg-white w-full max-w-md rounded-2xl shadow-xl overflow-hidden animate-in fade-in zoom-in duration-300">
+            <div className="bg-white w-full max-w-md rounded-2xl shadow-sm overflow-hidden animate-in fade-in zoom-in duration-300">
               <div className="bg-teal-500 px-6 py-8 text-center">
                 <div className="w-16 h-16 bg-white/20 rounded-full flex items-center justify-center mx-auto mb-4 backdrop-blur-sm">
                   <DollarSign size={32} className="text-white" />
@@ -639,7 +676,7 @@
         return (
           <div className="space-y-6 animate-in fade-in duration-300">
             {/* 總金額卡片 */}
-            <div className="relative rounded-2xl p-6 text-white shadow-sm border border-slate-100 overflow-hidden transition-all duration-300">
+            <div className="relative rounded-2xl p-6 text-white shadow-sm border border-slate-100 overflow-hidden transition-all duration-300 z-10">
               {!profileData.dashboardBg && (
                 <div className="absolute inset-0 bg-gradient-to-br from-teal-400 to-cyan-500 z-0"></div>
               )}
@@ -955,7 +992,8 @@
 
       return (
         <div className="min-h-screen bg-slate-50 font-sans pb-24 selection:bg-[#D4F5ED]" onClick={closeSwipe}>
-          <header className="bg-white sticky top-0 z-10 px-6 py-4 shadow-sm flex justify-between items-center">
+          {/* 【層級修正】：Header 層級調高至 z-40，並使用 bg-white 與 shadow 完美遮擋向上滑動的內容 */}
+          <header className="bg-white sticky top-0 z-40 px-6 py-4 shadow-sm flex justify-between items-center">
             <h1 className="text-xl font-bold text-slate-800 flex items-center gap-2">
               {activeTab === 'dashboard' && <Home size={22} className="text-teal-500"/>}
               {activeTab === 'transactions' && <List size={22} className="text-teal-500"/>}
@@ -968,6 +1006,7 @@
               }
             </h1>
             
+            {/* 右上角頭像 */}
             <button 
               onClick={(e) => { e.stopPropagation(); setIsProfileOpen(true); }}
               className="w-8 h-8 rounded-full overflow-hidden border border-slate-200 hover:border-teal-500 transition-colors bg-slate-100 flex items-center justify-center shrink-0"
@@ -981,14 +1020,14 @@
             </button>
           </header>
 
-          <main className="p-4 max-w-lg mx-auto">
+          <main className="p-4 max-w-lg mx-auto relative z-10">
             {activeTab === 'dashboard' && renderDashboard()}
             {activeTab === 'transactions' && renderTransactions()}
             {activeTab === 'subscriptions' && renderSubscriptions()}
             {activeTab === 'items' && renderItems()}
           </main>
 
-          <nav className="fixed bottom-0 w-full bg-white border-t border-slate-200 px-2 py-2 pb-safe max-w-lg left-1/2 -translate-x-1/2 z-20">
+          <nav className="fixed bottom-0 w-full bg-white border-t border-slate-200 px-2 py-2 pb-safe max-w-lg left-1/2 -translate-x-1/2 z-30">
             <div className="flex justify-around items-center">
               {[
                 { id: 'dashboard', label: '總覽', icon: Home },
@@ -1196,7 +1235,6 @@
       );
     }
 
-    // 掛載 React 應用程式到 #root 節點
     const root = createRoot(document.getElementById('root'));
     root.render(<App />);
   </script>
