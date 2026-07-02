@@ -1,0 +1,1205 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>生活倒影</title>
+  
+  <!-- 載入 Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  
+  <!-- 載入 Babel 以在瀏覽器中編譯 React JSX -->
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  
+  <!-- 定義 ES Module 的載入路徑 -->
+  <script type="importmap">
+    {
+      "imports": {
+        "react": "https://esm.sh/react@18.2.0",
+        "react-dom/client": "https://esm.sh/react-dom@18.2.0/client",
+        "lucide-react": "https://esm.sh/lucide-react@0.292.0?external=react",
+        "firebase/app": "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js",
+        "firebase/auth": "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js",
+        "firebase/firestore": "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js"
+      }
+    }
+  </script>
+
+  <style>
+    /* 處理手機版底部的安全距離 */
+    .pb-safe { padding-bottom: max(0.5rem, env(safe-area-inset-bottom)); }
+    /* 隱藏捲動條讓介面更乾淨 */
+    ::-webkit-scrollbar { display: none; }
+    body { -ms-overflow-style: none; scrollbar-width: none; }
+  </style>
+</head>
+<body class="bg-slate-50 text-slate-800">
+
+  <!-- React 應用程式的掛載點 -->
+  <div id="root"></div>
+
+  <!-- React 程式碼開始 -->
+  <script type="text/babel" data-type="module">
+    import React, { useState, useEffect, useRef } from 'react';
+    import { createRoot } from 'react-dom/client';
+    import { initializeApp } from 'firebase/app';
+    import { 
+      getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, 
+      signOut, onAuthStateChanged, updateProfile
+    } from 'firebase/auth';
+    import { 
+      getFirestore, collection, addDoc, deleteDoc, doc, 
+      onSnapshot, query, updateDoc, setDoc
+    } from 'firebase/firestore';
+    import { 
+      Home, List, CreditCard, Package, Plus, 
+      TrendingUp, TrendingDown, DollarSign, Calendar, 
+      Trash2, User, Lock, Mail, ChevronRight, Settings, 
+      CheckCircle2, Camera, X, Loader2, LogOut, Pencil, AlertTriangle
+    } from 'lucide-react';
+
+    // --- Firebase 初始化 ---
+    const firebaseConfig = {
+      apiKey: "AIzaSyDKVLVYRGvsiuFmQIXuFCU9O2TBVVRb3gk",
+      authDomain: "popcorn-ee2cc.firebaseapp.com",
+      projectId: "popcorn-ee2cc",
+      storageBucket: "popcorn-ee2cc.firebasestorage.app",
+      messagingSenderId: "1095484888994",
+      appId: "1:1095484888994:web:3d39b271a04d0935b0c4fb",
+      measurementId: "G-N8CGBLE373"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const auth = getAuth(app);
+    const db = getFirestore(app);
+    const APP_ID = 'popcorn-ee2cc';
+
+    function App() {
+      // --- 身份驗證狀態 ---
+      const [user, setUser] = useState(null);
+      const [authMode, setAuthMode] = useState('login'); 
+      const [authLoading, setAuthLoading] = useState(true);
+      const [authMessage, setAuthMessage] = useState({ type: '', text: '' });
+
+      const [email, setEmail] = useState('');
+      const [password, setPassword] = useState('');
+      const [confirmPassword, setConfirmPassword] = useState('');
+
+      // --- 應用程式狀態 ---
+      const [activeTab, setActiveTab] = useState('dashboard');
+      const [transactions, setTransactions] = useState([]);
+      const [subscriptions, setSubscriptions] = useState([]);
+      const [items, setItems] = useState([]);
+
+      // 表單暫存狀態
+      const [txType, setTxType] = useState('expense');
+      const [txAmount, setTxAmount] = useState('');
+      const [txNote, setTxNote] = useState('');
+      const [txDate, setTxDate] = useState(getTodayString());
+
+      const [subName, setSubName] = useState('');
+      const [subAmount, setSubAmount] = useState('');
+      const [subCycle, setSubCycle] = useState('monthly');
+      const [subDate, setSubDate] = useState(getTodayString());
+
+      const [itemName, setItemName] = useState('');
+      const [itemPrice, setItemPrice] = useState('');
+      const [itemDate, setItemDate] = useState(getTodayString());
+
+      // --- 整合個人資料 Modal 與數據 ---
+      const [isProfileOpen, setIsProfileOpen] = useState(false);
+      const [isSavingProfile, setIsSavingProfile] = useState(false);
+      const [profileSaveMsg, setProfileSaveMsg] = useState(null); 
+      const [profileData, setProfileData] = useState({
+        nickname: '',
+        avatar: '',
+        dashboardBg: ''
+      });
+
+      // --- 全域彈窗與滑動狀態 ---
+      const [deleteDialog, setDeleteDialog] = useState({ isOpen: false, type: '', id: '', data: null });
+      const [editDialog, setEditDialog] = useState({ isOpen: false, type: '', id: '', originalData: null, data: null });
+      const [isSavingEdit, setIsSavingEdit] = useState(false);
+      const [swipedItemId, setSwipedItemId] = useState(null);
+      const touchStartX = useRef(0);
+
+      // --- 輔助函式 ---
+      function getTodayString() {
+        const d = new Date();
+        const offset = d.getTimezoneOffset();
+        const localDate = new Date(d.getTime() - (offset * 60 * 1000));
+        return localDate.toISOString().split('T')[0];
+      }
+
+      const getDaysUsed = (purchaseDateStr) => {
+        const start = new Date(purchaseDateStr);
+        const today = new Date();
+        start.setHours(0, 0, 0, 0);
+        today.setHours(0, 0, 0, 0);
+        const diffTime = today - start;
+        const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+        return diffDays >= 0 ? diffDays + 1 : 1; 
+      };
+
+      const totalIncome = transactions.filter(t => t.type === 'income').reduce((sum, t) => sum + t.amount, 0);
+      const totalExpense = transactions.filter(t => t.type === 'expense').reduce((sum, t) => sum + t.amount, 0);
+      const currentBalance = totalIncome - totalExpense;
+
+      // --- 滑動操作 (Swipe to Reveal) ---
+      const handleTouchStart = (e) => {
+        touchStartX.current = e.touches[0].clientX;
+      };
+      const handleTouchEnd = (e, id) => {
+        const touchEndX = e.changedTouches[0].clientX;
+        const diff = touchStartX.current - touchEndX;
+        if (diff > 40) {
+          setSwipedItemId(id);
+        } else if (diff < -40) {
+          setSwipedItemId(null);
+        }
+      };
+
+      const closeSwipe = () => {
+        if (swipedItemId) setSwipedItemId(null);
+      };
+
+      // --- Firebase 監聽與認證邏輯 ---
+      useEffect(() => {
+        const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+          setUser(currentUser);
+          if (currentUser) {
+            setProfileData(prev => ({
+              ...prev,
+              nickname: currentUser.displayName || prev.nickname,
+            }));
+          }
+          setAuthLoading(false);
+        });
+        return () => unsubscribe();
+      }, []);
+
+      useEffect(() => {
+        if (!user) {
+          setTransactions([]);
+          setSubscriptions([]);
+          setItems([]);
+          setProfileData({ nickname: '', avatar: '', dashboardBg: '' });
+          return;
+        }
+
+        const basePath = `artifacts/${APP_ID}/users/${user.uid}`;
+
+        const unsubProfile = onSnapshot(doc(db, basePath, 'profile', 'info'), (docSnap) => {
+          if (docSnap.exists()) {
+            const data = docSnap.data();
+            setProfileData(prev => ({
+              ...prev,
+              nickname: data.nickname || user.displayName || '',
+              avatar: data.avatar || '',
+              dashboardBg: data.dashboardBg || ''
+            }));
+          }
+        });
+
+        const unsubTx = onSnapshot(query(collection(db, basePath, 'transactions')), 
+          (snap) => {
+            const data = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            data.sort((a, b) => b.createdAt - a.createdAt); 
+            setTransactions(data);
+          }
+        );
+
+        const unsubSub = onSnapshot(query(collection(db, basePath, 'subscriptions')), 
+          (snap) => {
+            const data = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            data.sort((a, b) => b.createdAt - a.createdAt);
+            setSubscriptions(data);
+          }
+        );
+
+        const unsubItem = onSnapshot(query(collection(db, basePath, 'items')), 
+          (snap) => {
+            const data = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            data.sort((a, b) => b.createdAt - a.createdAt);
+            setItems(data);
+          }
+        );
+
+        return () => { unsubProfile(); unsubTx(); unsubSub(); unsubItem(); };
+      }, [user]);
+
+      // --- 自動處理到期的訂閱 ---
+      useEffect(() => {
+        const processDueSubscriptions = async () => {
+          if (!user || subscriptions.length === 0) return;
+          const today = getTodayString();
+          
+          for (const sub of subscriptions) {
+            if (sub.nextDate <= today) {
+              let currentDate = new Date(sub.nextDate);
+              const todayDate = new Date(today);
+              let expenseCount = 0;
+              let deductionDates = [];
+
+              while (currentDate <= todayDate) {
+                deductionDates.push(currentDate.toISOString().split('T')[0]);
+                expenseCount++;
+                
+                if (sub.cycle === 'monthly') currentDate.setMonth(currentDate.getMonth() + 1);
+                else if (sub.cycle === 'quarterly') currentDate.setMonth(currentDate.getMonth() + 3);
+                else if (sub.cycle === 'yearly') currentDate.setFullYear(currentDate.getFullYear() + 1);
+              }
+
+              if (expenseCount > 0) {
+                try {
+                  for (const dDate of deductionDates) {
+                    await addDoc(collection(db, `artifacts/${APP_ID}/users/${user.uid}/transactions`), {
+                      type: 'expense',
+                      amount: sub.amount,
+                      note: `自動訂閱扣款: ${sub.name}`,
+                      date: dDate,
+                      createdAt: Date.now()
+                    });
+                  }
+                  await updateDoc(doc(db, `artifacts/${APP_ID}/users/${user.uid}/subscriptions`, sub.id), {
+                    nextDate: currentDate.toISOString().split('T')[0]
+                  });
+                } catch (err) { console.error("自動扣款處理失敗", err); }
+              }
+            }
+          }
+        };
+        processDueSubscriptions();
+      }, [subscriptions, user]);
+
+      // --- 身份驗證邏輯 ---
+      const handleAuth = async (e) => {
+        e.preventDefault();
+        setAuthMessage({ type: '', text: '' });
+
+        if (authMode === 'register') {
+          if (password !== confirmPassword) {
+            setAuthMessage({ type: 'error', text: '兩次輸入的密碼不相同' });
+            return;
+          }
+          try {
+            await createUserWithEmailAndPassword(auth, email, password);
+            await signOut(auth); 
+            setAuthMode('login');
+            setAuthMessage({ type: 'success', text: '註冊成功！請登入' });
+            setPassword('');
+            setConfirmPassword('');
+          } catch (err) {
+            let msg = '註冊失敗';
+            if (err.code === 'auth/email-already-in-use') msg = '此信箱已被註冊';
+            if (err.code === 'auth/weak-password') msg = '密碼長度至少需要 6 個字元';
+            setAuthMessage({ type: 'error', text: msg });
+          }
+        } else {
+          try {
+            await signInWithEmailAndPassword(auth, email, password);
+            setEmail('');
+            setPassword('');
+            setActiveTab('dashboard');
+          } catch (err) {
+            let msg = '登入失敗，請檢查帳號密碼';
+            if (err.code === 'auth/user-not-found' || err.code === 'auth/wrong-password' || err.code === 'auth/invalid-credential') msg = '帳號或密碼錯誤';
+            setAuthMessage({ type: 'error', text: msg });
+          }
+        }
+      };
+
+      const handleLogout = async () => {
+        await signOut(auth);
+        setIsProfileOpen(false);
+        setActiveTab('dashboard');
+      };
+
+      // --- 圖片壓縮處理 ---
+      const compressImage = (file, maxDimension = 300, quality = 0.7) => {
+        return new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = (event) => {
+            const img = new Image();
+            img.onload = () => {
+              const canvas = document.createElement('canvas');
+              let width = img.width;
+              let height = img.height;
+
+              if (width > height) {
+                if (width > maxDimension) {
+                  height = Math.round((height * maxDimension) / width);
+                  width = maxDimension;
+                }
+              } else {
+                if (height > maxDimension) {
+                  width = Math.round((width * maxDimension) / height);
+                  height = maxDimension;
+                }
+              }
+
+              canvas.width = width;
+              canvas.height = height;
+              const ctx = canvas.getContext('2d');
+              ctx.drawImage(img, 0, 0, width, height);
+              resolve(canvas.toDataURL('image/jpeg', quality));
+            };
+            img.onerror = reject;
+            img.src = event.target.result;
+          };
+          reader.onerror = reject;
+          reader.readAsDataURL(file);
+        });
+      };
+
+      const handleAvatarUpload = async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        try {
+          const compressedBase64 = await compressImage(file, 250, 0.7); 
+          setProfileData(prev => ({ ...prev, avatar: compressedBase64 }));
+        } catch (err) { console.error(err); }
+      };
+
+      const handleDashboardBgUpload = async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        try {
+          const compressedBase64 = await compressImage(file, 800, 0.6); 
+          setProfileData(prev => ({ ...prev, dashboardBg: compressedBase64 }));
+        } catch (err) { console.error(err); }
+      };
+
+      // 儲存設定至 Firebase
+      const handleSaveProfile = async () => {
+        if (!user) return;
+        setIsSavingProfile(true);
+        setProfileSaveMsg(null);
+        try {
+          await updateProfile(auth.currentUser, {
+            displayName: profileData.nickname
+          });
+          
+          await setDoc(doc(db, `artifacts/${APP_ID}/users/${user.uid}/profile`, 'info'), {
+            nickname: profileData.nickname,
+            avatar: profileData.avatar || '',
+            dashboardBg: profileData.dashboardBg || ''
+          }, { merge: true });
+          
+          setUser({ ...auth.currentUser, displayName: profileData.nickname });
+          
+          setProfileSaveMsg({ type: 'success', text: '設定已成功儲存！' });
+          
+          setTimeout(() => {
+            setIsProfileOpen(false);
+            setProfileSaveMsg(null);
+          }, 1500);
+
+        } catch (err) { 
+          console.error(err); 
+          setProfileSaveMsg({ type: 'error', text: '儲存失敗，請重試 (圖片可能過大)' });
+        } finally { 
+          setIsSavingProfile(false); 
+        }
+      };
+
+      // --- 資料收支新增 ---
+      const handleAddTransaction = async (e) => {
+        e.preventDefault();
+        if (!txAmount || !txNote || !user) return;
+        try {
+          await addDoc(collection(db, `artifacts/${APP_ID}/users/${user.uid}/transactions`), {
+            type: txType,
+            amount: parseFloat(txAmount),
+            note: txNote,
+            date: txDate,
+            createdAt: Date.now()
+          });
+          setTxAmount('');
+          setTxNote('');
+        } catch (err) { console.error(err); }
+      };
+
+      const handleAddSubscription = async (e) => {
+        e.preventDefault();
+        if (!subName || !subAmount || !user) return;
+        try {
+          await addDoc(collection(db, `artifacts/${APP_ID}/users/${user.uid}/subscriptions`), {
+            name: subName,
+            amount: parseFloat(subAmount),
+            cycle: subCycle,
+            nextDate: subDate,
+            createdAt: Date.now()
+          });
+          setSubName('');
+          setSubAmount('');
+        } catch (err) { console.error(err); }
+      };
+
+      const handleAddItem = async (e) => {
+        e.preventDefault();
+        if (!itemName || !itemPrice || !user) return;
+        try {
+          const priceNum = parseFloat(itemPrice);
+          await addDoc(collection(db, `artifacts/${APP_ID}/users/${user.uid}/items`), {
+            name: itemName,
+            price: priceNum,
+            purchaseDate: itemDate,
+            createdAt: Date.now()
+          });
+          await addDoc(collection(db, `artifacts/${APP_ID}/users/${user.uid}/transactions`), {
+            type: 'expense',
+            amount: priceNum,
+            note: `分攤購入: ${itemName}`,
+            date: itemDate,
+            createdAt: Date.now()
+          });
+          setItemName('');
+          setItemPrice('');
+        } catch (err) { console.error(err); }
+      };
+
+      // --- 確認刪除機制 ---
+      const confirmDelete = async () => {
+        if (!deleteDialog.isOpen || !user) return;
+        const { type, id, data } = deleteDialog;
+        
+        try {
+          if (type === 'transaction') {
+            await deleteDoc(doc(db, `artifacts/${APP_ID}/users/${user.uid}/transactions`, id));
+          } else if (type === 'subscription') {
+            await deleteDoc(doc(db, `artifacts/${APP_ID}/users/${user.uid}/subscriptions`, id));
+          } else if (type === 'item') {
+            await deleteDoc(doc(db, `artifacts/${APP_ID}/users/${user.uid}/items`, id));
+            const matchedTx = transactions.find(t => t.note === `分攤購入: ${data.name}` && t.amount === data.price);
+            if (matchedTx) {
+              await deleteDoc(doc(db, `artifacts/${APP_ID}/users/${user.uid}/transactions`, matchedTx.id));
+            }
+          }
+        } catch (err) { console.error("刪除失敗", err); }
+        
+        setDeleteDialog({ isOpen: false, type: '', id: '', data: null });
+      };
+
+      // --- 確認編輯機制 ---
+      const handleEditSubmit = async (e) => {
+        e.preventDefault();
+        if (!editDialog.isOpen || !user) return;
+        setIsSavingEdit(true);
+        const { type, id, originalData, data } = editDialog;
+
+        try {
+          const docRef = doc(db, `artifacts/${APP_ID}/users/${user.uid}/${type}s`, id);
+          const payload = { ...data };
+          if (payload.amount !== undefined) payload.amount = parseFloat(payload.amount);
+          if (payload.price !== undefined) payload.price = parseFloat(payload.price);
+          
+          await updateDoc(docRef, payload);
+
+          if (type === 'item') {
+            const matchedTx = transactions.find(t => t.note === `分攤購入: ${originalData.name}` && t.amount === originalData.price);
+            if (matchedTx) {
+              await updateDoc(doc(db, `artifacts/${APP_ID}/users/${user.uid}/transactions`, matchedTx.id), {
+                note: `分攤購入: ${payload.name}`,
+                amount: payload.price,
+                date: payload.purchaseDate
+              });
+            }
+          }
+        } catch (err) { console.error("編輯失敗", err); }
+        
+        setIsSavingEdit(false);
+        setEditDialog({ isOpen: false, type: '', id: '', originalData: null, data: null });
+      };
+
+      // --- 頁面渲染 ---
+
+      if (authLoading) {
+        return (
+          <div className="min-h-screen flex items-center justify-center bg-slate-50">
+            <Loader2 className="animate-spin text-teal-500" size={32} />
+          </div>
+        );
+      }
+
+      if (!user) {
+        return (
+          <div className="min-h-screen bg-gradient-to-br from-teal-50 to-cyan-100 flex items-center justify-center p-4">
+            <div className="bg-white w-full max-w-md rounded-2xl shadow-xl overflow-hidden animate-in fade-in zoom-in duration-300">
+              <div className="bg-teal-500 px-6 py-8 text-center">
+                <div className="w-16 h-16 bg-white/20 rounded-full flex items-center justify-center mx-auto mb-4 backdrop-blur-sm">
+                  <DollarSign size={32} className="text-white" />
+                </div>
+                <h1 className="text-2xl font-bold text-white">生活倒影</h1>
+                <p className="text-teal-100 text-sm mt-2">管理你的財務，清晰每一筆支出</p>
+              </div>
+              
+              <div className="p-6 md:p-8">
+                <h2 className="text-xl font-bold text-slate-800 mb-6 text-center">
+                  {authMode === 'login' ? '登入你的帳號' : '註冊新帳號'}
+                </h2>
+
+                {authMessage.text && (
+                  <div className={`p-3 rounded-lg text-sm mb-4 text-center font-medium ${
+                    authMessage.type === 'error' ? 'bg-rose-50 text-rose-600 border border-rose-100' : 'bg-[#D4F5ED] text-[#35a788]'
+                  }`}>
+                    {authMessage.text}
+                  </div>
+                )}
+
+                <form onSubmit={handleAuth} className="space-y-4">
+                  <div className="relative">
+                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
+                      <Mail size={18} />
+                    </div>
+                    <input 
+                      type="email" required placeholder="信箱 (Email)" 
+                      value={email} onChange={(e) => setEmail(e.target.value)}
+                      className="w-full pl-10 pr-3 py-3 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 focus:outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500 transition-colors"
+                    />
+                  </div>
+                  <div className="relative">
+                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
+                      <Lock size={18} />
+                    </div>
+                    <input 
+                      type="password" required placeholder="密碼" 
+                      value={password} onChange={(e) => setPassword(e.target.value)}
+                      className="w-full pl-10 pr-3 py-3 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 focus:outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500 transition-colors"
+                    />
+                  </div>
+                  {authMode === 'register' && (
+                    <div className="relative animate-in slide-in-from-top-2">
+                      <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
+                        <Lock size={18} />
+                      </div>
+                      <input 
+                        type="password" required placeholder="再次輸入密碼" 
+                        value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)}
+                        className="w-full pl-10 pr-3 py-3 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 focus:outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500 transition-colors"
+                      />
+                    </div>
+                  )}
+                  <button type="submit" className="w-full bg-teal-500 text-white font-medium py-3 rounded-xl hover:bg-teal-600 transition-colors mt-2">
+                    {authMode === 'login' ? '登入' : '註冊'}
+                  </button>
+                </form>
+                <div className="mt-6 text-center text-sm text-slate-500">
+                  {authMode === 'login' ? '還沒有帳號嗎？' : '已經有帳號了？'}
+                  <button 
+                    onClick={() => {
+                      setAuthMode(authMode === 'login' ? 'register' : 'login');
+                      setAuthMessage({ type: '', text: '' });
+                    }} 
+                    className="ml-1 text-teal-600 font-medium hover:underline"
+                  >
+                    {authMode === 'login' ? '立即註冊' : '返回登入'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      }
+
+      // --- 儀表板頁面 ---
+      const renderDashboard = () => {
+        const expenses = transactions.filter(t => t.type === 'expense');
+        const expenseGroups = {};
+        expenses.forEach(t => {
+          const key = t.note || '未分類';
+          expenseGroups[key] = (expenseGroups[key] || 0) + t.amount;
+        });
+
+        let chartData = Object.keys(expenseGroups)
+          .map(key => ({ name: key, value: expenseGroups[key] }))
+          .sort((a, b) => b.value - a.value);
+
+        if (chartData.length > 5) {
+          const top4 = chartData.slice(0, 4);
+          const othersValue = chartData.slice(4).reduce((sum, item) => sum + item.value, 0);
+          top4.push({ name: '其他', value: othersValue });
+          chartData = top4;
+        }
+
+        const totalChartValue = chartData.reduce((sum, item) => sum + item.value, 0);
+        const pieColors = ['#14b8a6', '#3b82f6', '#f59e0b', '#f43f5e', '#a855f7'];
+        
+        let conicString = '';
+        let currentPercentage = 0;
+        if (totalChartValue > 0) {
+          chartData.forEach((item, index) => {
+            const percentage = (item.value / totalChartValue) * 100;
+            conicString += `${pieColors[index]} ${currentPercentage}% ${currentPercentage + percentage}%, `;
+            currentPercentage += percentage;
+          });
+          conicString = conicString.slice(0, -2);
+        }
+
+        return (
+          <div className="space-y-6 animate-in fade-in duration-300">
+            {/* 總金額卡片 */}
+            <div className="relative rounded-2xl p-6 text-white shadow-sm border border-slate-100 overflow-hidden transition-all duration-300">
+              {!profileData.dashboardBg && (
+                <div className="absolute inset-0 bg-gradient-to-br from-teal-400 to-cyan-500 z-0"></div>
+              )}
+              {profileData.dashboardBg && (
+                <div className="absolute inset-0 z-0">
+                  <img src={profileData.dashboardBg} alt="Dashboard Background" className="w-full h-full object-cover" />
+                </div>
+              )}
+              <div className="relative z-10 flex justify-between items-start mb-1 drop-shadow-md">
+                <h2 className="text-white font-medium">總餘額</h2>
+                <button 
+                  onClick={() => setIsProfileOpen(true)}
+                  className="bg-black/10 px-2.5 py-1 rounded-full text-xs backdrop-blur-md flex items-center gap-2 hover:bg-black/20 transition-colors border border-white/20"
+                >
+                  {profileData.avatar ? (
+                    <img src={profileData.avatar} alt="Avatar" className="w-5 h-5 rounded-full object-cover" />
+                  ) : (
+                    <User size={14} />
+                  )}
+                  {profileData.nickname || '設定個人資料'}
+                </button>
+              </div>
+              <div className="relative z-10 text-4xl font-bold mb-4 flex items-center drop-shadow-lg text-white">
+                <DollarSign size={32} />
+                {currentBalance.toLocaleString()}
+              </div>
+              <div className="relative z-10 flex gap-4 border-t border-white/30 pt-4 drop-shadow-md">
+                <div className="flex-1">
+                  <div className="text-white text-sm mb-1 flex items-center gap-1">
+                    <TrendingUp size={14} /> 總收入
+                  </div>
+                  <div className="font-semibold text-white">${totalIncome.toLocaleString()}</div>
+                </div>
+                <div className="flex-1">
+                  <div className="text-white text-sm mb-1 flex items-center gap-1">
+                    <TrendingDown size={14} /> 總支出
+                  </div>
+                  <div className="font-semibold text-white">${totalExpense.toLocaleString()}</div>
+                </div>
+              </div>
+            </div>
+
+            {/* 總覽導航區 */}
+            <div className="grid grid-cols-2 gap-4">
+              <button 
+                onClick={() => setActiveTab('subscriptions')}
+                className="bg-white p-4 rounded-2xl border border-slate-100 hover:border-teal-300 transition-all text-left relative group animate-in fade-in shadow-sm"
+              >
+                <div className="absolute top-4 right-4 text-slate-300 group-hover:text-teal-500 transition-colors">
+                  <ChevronRight size={18} />
+                </div>
+                <div className="text-slate-500 text-sm mb-2 flex items-center gap-2">
+                  <CreditCard size={16} className="text-blue-500"/> 有效訂閱
+                </div>
+                <div className="text-2xl font-bold text-slate-800">{subscriptions.length} <span className="text-sm font-normal text-slate-500">項</span></div>
+              </button>
+              
+              <button 
+                onClick={() => setActiveTab('items')}
+                className="bg-white p-4 rounded-2xl border border-slate-100 hover:border-teal-300 transition-all text-left relative group animate-in fade-in shadow-sm"
+              >
+                <div className="absolute top-4 right-4 text-slate-300 group-hover:text-teal-500 transition-colors">
+                  <ChevronRight size={18} />
+                </div>
+                <div className="text-slate-500 text-sm mb-2 flex items-center gap-2">
+                  <Package size={16} className="text-orange-500"/> 追蹤物品
+                </div>
+                <div className="text-2xl font-bold text-slate-800">{items.length} <span className="text-sm font-normal text-slate-500">件</span></div>
+              </button>
+            </div>
+
+            {/* 支出佔比圓餅圖 */}
+            <div className="bg-white p-5 rounded-2xl border border-slate-100 animate-in fade-in shadow-sm">
+              <h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2">
+                <div className="w-1.5 h-4 bg-teal-500 rounded-full"></div> 支出分析
+              </h3>
+              {totalChartValue === 0 ? (
+                <div className="text-center text-slate-400 py-6 text-sm">尚無支出紀錄</div>
+              ) : (
+                <div className="flex items-center gap-5">
+                  <div 
+                    className="w-24 h-24 rounded-full shrink-0 relative" 
+                    style={{ background: `conic-gradient(${conicString})` }}
+                  >
+                    <div className="absolute inset-2 bg-white rounded-full flex items-center justify-center">
+                      <span className="text-xs font-bold text-slate-400">總計</span>
+                    </div>
+                  </div>
+                  <div className="flex-1 space-y-2">
+                    {chartData.map((item, i) => (
+                      <div key={i} className="flex items-center justify-between text-xs">
+                        <div className="flex items-center gap-2 overflow-hidden">
+                          <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: pieColors[i] }}></span>
+                          <span className="truncate text-slate-600 max-w-[80px]">{item.name}</span>
+                        </div>
+                        <span className="font-bold text-slate-800 shrink-0 pl-2">
+                          {Math.round((item.value / totalChartValue) * 100)}%
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      };
+
+      const renderTransactions = () => (
+        <div className="space-y-6 animate-in fade-in duration-300">
+          <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100">
+            <h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2">
+              <Plus size={18} className="text-teal-500" /> 新增紀錄
+            </h3>
+            <form onSubmit={handleAddTransaction} className="space-y-4">
+              <div className="flex gap-2 p-1 bg-slate-100 rounded-lg">
+                <button type="button" onClick={() => setTxType('expense')} className={`flex-1 py-2 rounded-md text-sm font-medium transition-colors ${txType === 'expense' ? 'bg-white shadow-sm text-rose-500' : 'text-slate-500 hover:bg-slate-200'}`}>支出</button>
+                <button type="button" onClick={() => setTxType('income')} className={`flex-1 py-2 rounded-md text-sm font-medium transition-colors ${txType === 'income' ? 'bg-white shadow-sm text-[#35a788]' : 'text-slate-500 hover:bg-slate-200'}`}>收入</button>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <input type="number" required placeholder="金額" value={txAmount} onChange={e => setTxAmount(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-slate-800 focus:outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500" />
+                <input type="date" required value={txDate} onChange={e => setTxDate(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-slate-800 focus:outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500" />
+              </div>
+              <input type="text" required placeholder="項目說明 (例如: 早餐、薪水)" value={txNote} onChange={e => setTxNote(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-slate-800 focus:outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500" />
+              <button type="submit" className="w-full bg-teal-500 text-white font-medium py-3 rounded-lg hover:bg-teal-600 transition-colors">儲存紀錄</button>
+            </form>
+          </div>
+
+          <div>
+            <h3 className="font-bold text-slate-800 mb-3 px-1">歷史明細 (向左滑動操作)</h3>
+            <div className="space-y-3">
+              {transactions.length === 0 ? (
+                <div className="text-center text-slate-400 py-8 bg-white rounded-2xl border border-dashed border-slate-200">尚無紀錄</div>
+              ) : (
+                transactions.map(tx => (
+                  <div key={tx.id} className="relative overflow-hidden rounded-xl shadow-sm border border-slate-100 bg-white">
+                    <div className="absolute right-0 top-0 bottom-0 flex w-[120px]">
+                      <button onClick={() => { setEditDialog({ isOpen: true, type: 'transaction', id: tx.id, originalData: tx, data: { ...tx } }); setSwipedItemId(null); }} className="flex-1 bg-teal-500 flex flex-col items-center justify-center text-white active:bg-teal-600 transition-colors">
+                        <Pencil size={18} />
+                      </button>
+                      <button onClick={() => { setDeleteDialog({ isOpen: true, type: 'transaction', id: tx.id, data: tx }); setSwipedItemId(null); }} className="flex-1 bg-rose-500 flex flex-col items-center justify-center text-white active:bg-rose-600 transition-colors">
+                        <Trash2 size={18} />
+                      </button>
+                    </div>
+                    
+                    <div 
+                      onTouchStart={handleTouchStart} 
+                      onTouchEnd={(e) => handleTouchEnd(e, tx.id)}
+                      className={`relative bg-white p-4 flex items-center justify-between transition-transform duration-300 ease-out ${swipedItemId === tx.id ? '-translate-x-[120px]' : 'translate-x-0'}`}
+                    >
+                      <div className="flex items-center gap-4">
+                        <div className={`p-2 rounded-full ${tx.type === 'income' ? 'bg-[#D4F5ED] text-[#35a788]' : 'bg-rose-100 text-rose-600'}`}>
+                          {tx.type === 'income' ? <TrendingUp size={20} /> : <TrendingDown size={20} />}
+                        </div>
+                        <div>
+                          <div className="font-medium text-slate-800">{tx.note}</div>
+                          <div className="text-xs text-slate-500">{tx.date}</div>
+                        </div>
+                      </div>
+                      <div className={`font-bold ${tx.type === 'income' ? 'text-[#35a788]' : 'text-rose-600'}`}>
+                        {tx.type === 'income' ? '+' : '-'}${tx.amount.toLocaleString()}
+                      </div>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      );
+
+      const renderSubscriptions = () => (
+        <div className="space-y-6 animate-in fade-in duration-300">
+          <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100">
+            <h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2">
+              <CreditCard size={18} className="text-blue-500" /> 新增訂閱
+            </h3>
+            <form onSubmit={handleAddSubscription} className="space-y-3">
+              <input type="text" required placeholder="訂閱名稱 (例如: Netflix)" value={subName} onChange={e => setSubName(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-slate-800 focus:outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500" />
+              <div className="grid grid-cols-2 gap-3">
+                 <input type="number" required placeholder="扣款金額" value={subAmount} onChange={e => setSubAmount(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-slate-800 focus:outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500" />
+                 <select value={subCycle} onChange={e => setSubCycle(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-slate-800 focus:outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500">
+                    <option value="monthly">每月</option>
+                    <option value="quarterly">每季</option>
+                    <option value="yearly">每年</option>
+                 </select>
+              </div>
+              <div>
+                <label className="text-xs text-slate-500 mb-1 ml-1 block">首次/下次扣款日</label>
+                <input type="date" required value={subDate} onChange={e => setSubDate(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-slate-800 focus:outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500" />
+              </div>
+              <button type="submit" className="w-full bg-teal-500 text-white font-medium py-3 rounded-lg hover:bg-teal-600 transition-colors mt-2">新增訂閱</button>
+            </form>
+          </div>
+
+          <div>
+            <h3 className="font-bold text-slate-800 mb-3 px-1">管理中訂閱 (向左滑動操作)</h3>
+            <div className="space-y-3">
+              {subscriptions.length === 0 ? (
+                <div className="text-center text-slate-400 py-8 bg-white rounded-2xl border border-dashed border-slate-200">尚無訂閱資料</div>
+              ) : (
+                subscriptions.map(sub => (
+                  <div key={sub.id} className="relative overflow-hidden rounded-xl shadow-sm border border-slate-100 bg-white">
+                    <div className="absolute right-0 top-0 bottom-0 flex w-[120px]">
+                      <button onClick={() => { setEditDialog({ isOpen: true, type: 'subscription', id: sub.id, originalData: sub, data: { ...sub } }); setSwipedItemId(null); }} className="flex-1 bg-teal-500 flex items-center justify-center text-white active:bg-teal-600 transition-colors">
+                        <Pencil size={18} />
+                      </button>
+                      <button onClick={() => { setDeleteDialog({ isOpen: true, type: 'subscription', id: sub.id, data: sub }); setSwipedItemId(null); }} className="flex-1 bg-rose-500 flex items-center justify-center text-white active:bg-rose-600 transition-colors">
+                        <Trash2 size={18} />
+                      </button>
+                    </div>
+                    
+                    <div 
+                      onTouchStart={handleTouchStart} 
+                      onTouchEnd={(e) => handleTouchEnd(e, sub.id)}
+                      className={`relative bg-white p-4 transition-transform duration-300 ease-out flex items-center justify-between ${swipedItemId === sub.id ? '-translate-x-[120px]' : 'translate-x-0'}`}
+                    >
+                      <div className="absolute top-0 left-0 w-1 h-full bg-blue-500"></div>
+                      <div>
+                        <h4 className="font-bold text-slate-800 text-lg flex items-center gap-2">
+                          {sub.name}
+                          <span className="bg-[#D4F5ED] text-[#35a788] text-[10px] px-1.5 py-0.5 rounded-full flex items-center gap-1 border border-[#D4F5ED]">
+                             <CheckCircle2 size={10} /> 自動扣款中
+                          </span>
+                        </h4>
+                        <div className="text-sm text-slate-500 flex items-center gap-1 mt-1">
+                          <Calendar size={14}/> 下次: <span className="font-medium text-slate-700">{sub.nextDate}</span>
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <div className="font-bold text-rose-600">${sub.amount.toLocaleString()}</div>
+                        <div className="text-xs text-slate-400">
+                          / {sub.cycle === 'monthly' ? '月' : sub.cycle === 'quarterly' ? '季' : '年'}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      );
+
+      const renderItems = () => (
+        <div className="space-y-6 animate-in fade-in duration-300">
+          <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100">
+            <h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2">
+              <Package size={18} className="text-orange-500" /> 新增物品
+            </h3>
+            <form onSubmit={handleAddItem} className="space-y-3">
+              <input type="text" required placeholder="物品名稱 (例如: 筆電、手機)" value={itemName} onChange={e => setItemName(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-slate-800 focus:outline-none focus:border-orange-500 focus:ring-1 focus:ring-orange-500" />
+              <div className="grid grid-cols-2 gap-3">
+                 <input type="number" required placeholder="總金額" value={itemPrice} onChange={e => setItemPrice(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-slate-800 focus:outline-none focus:border-orange-500 focus:ring-1 focus:ring-orange-500" />
+                 <input type="date" required value={itemDate} onChange={e => setItemDate(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-slate-800 focus:outline-none focus:border-orange-500 focus:ring-1 focus:ring-orange-500" />
+              </div>
+              <button type="submit" className="w-full bg-orange-500 text-white font-medium py-3 rounded-lg hover:bg-orange-600 transition-colors mt-2">新增並計入支出</button>
+            </form>
+          </div>
+
+          <div>
+            <h3 className="font-bold text-slate-800 mb-3 px-1">物品分攤分析 (向左滑動操作)</h3>
+            <div className="space-y-3">
+              {items.length === 0 ? (
+                <div className="text-center text-slate-400 py-8 bg-white rounded-2xl border border-dashed border-slate-200">尚無物品資料</div>
+              ) : (
+                items.map(item => {
+                  const daysUsed = getDaysUsed(item.purchaseDate);
+                  const dailyCost = (item.price / daysUsed).toFixed(1);
+                  return (
+                    <div key={item.id} className="relative overflow-hidden rounded-xl shadow-sm border border-slate-100 bg-white">
+                      <div className="absolute right-0 top-0 bottom-0 flex w-[120px]">
+                        <button onClick={() => { setEditDialog({ isOpen: true, type: 'item', id: item.id, originalData: item, data: { ...item } }); setSwipedItemId(null); }} className="flex-1 bg-teal-500 flex items-center justify-center text-white active:bg-teal-600 transition-colors">
+                          <Pencil size={18} />
+                        </button>
+                        <button onClick={() => { setDeleteDialog({ isOpen: true, type: 'item', id: item.id, data: item }); setSwipedItemId(null); }} className="flex-1 bg-rose-500 flex items-center justify-center text-white active:bg-rose-600 transition-colors">
+                          <Trash2 size={18} />
+                        </button>
+                      </div>
+                      
+                      <div 
+                        onTouchStart={handleTouchStart} 
+                        onTouchEnd={(e) => handleTouchEnd(e, item.id)}
+                        className={`relative bg-white p-4 transition-transform duration-300 ease-out ${swipedItemId === item.id ? '-translate-x-[120px]' : 'translate-x-0'}`}
+                      >
+                        <div className="mb-3">
+                          <h4 className="font-bold text-slate-800">{item.name}</h4>
+                          <div className="text-xs text-slate-500 mt-0.5">購入於 {item.purchaseDate}</div>
+                        </div>
+                        <div className="bg-slate-50 rounded-lg p-3 grid grid-cols-3 gap-2 text-center divide-x divide-slate-200">
+                          <div>
+                            <div className="text-[10px] text-slate-500 uppercase tracking-wider mb-1">總金額</div>
+                            <div className="font-semibold text-slate-700">${item.price.toLocaleString()}</div>
+                          </div>
+                          <div>
+                            <div className="text-[10px] text-slate-500 uppercase tracking-wider mb-1">已用天數</div>
+                            <div className="font-semibold text-slate-700">{daysUsed} 天</div>
+                          </div>
+                          <div>
+                            <div className="text-[10px] text-slate-500 uppercase tracking-wider mb-1">每日花費</div>
+                            <div className="font-bold text-orange-600">${dailyCost}</div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+        </div>
+      );
+
+      return (
+        <div className="min-h-screen bg-slate-50 font-sans pb-24 selection:bg-[#D4F5ED]" onClick={closeSwipe}>
+          <header className="bg-white sticky top-0 z-10 px-6 py-4 shadow-sm flex justify-between items-center">
+            <h1 className="text-xl font-bold text-slate-800 flex items-center gap-2">
+              {activeTab === 'dashboard' && <Home size={22} className="text-teal-500"/>}
+              {activeTab === 'transactions' && <List size={22} className="text-teal-500"/>}
+              {activeTab === 'subscriptions' && <CreditCard size={22} className="text-teal-500"/>}
+              {activeTab === 'items' && <Package size={22} className="text-teal-500"/>}
+              {
+                activeTab === 'dashboard' ? '生活倒影' :
+                activeTab === 'transactions' ? '收支紀錄' :
+                activeTab === 'subscriptions' ? '定期訂閱' : '物品分攤'
+              }
+            </h1>
+            
+            <button 
+              onClick={(e) => { e.stopPropagation(); setIsProfileOpen(true); }}
+              className="w-8 h-8 rounded-full overflow-hidden border border-slate-200 hover:border-teal-500 transition-colors bg-slate-100 flex items-center justify-center shrink-0"
+              title="編輯個人資料"
+            >
+              {profileData?.avatar ? (
+                <img src={profileData.avatar} alt="Avatar" className="w-full h-full object-cover" />
+              ) : (
+                <User size={16} className="text-slate-400" />
+              )}
+            </button>
+          </header>
+
+          <main className="p-4 max-w-lg mx-auto">
+            {activeTab === 'dashboard' && renderDashboard()}
+            {activeTab === 'transactions' && renderTransactions()}
+            {activeTab === 'subscriptions' && renderSubscriptions()}
+            {activeTab === 'items' && renderItems()}
+          </main>
+
+          <nav className="fixed bottom-0 w-full bg-white border-t border-slate-200 px-2 py-2 pb-safe max-w-lg left-1/2 -translate-x-1/2 z-20">
+            <div className="flex justify-around items-center">
+              {[
+                { id: 'dashboard', label: '總覽', icon: Home },
+                { id: 'transactions', label: '記帳', icon: List },
+                { id: 'subscriptions', label: '訂閱', icon: CreditCard },
+                { id: 'items', label: '分攤', icon: Package }
+              ].map((tab) => (
+                <button
+                  key={tab.id}
+                  onClick={() => { setActiveTab(tab.id); setSwipedItemId(null); }}
+                  className={`flex flex-col items-center justify-center w-16 h-14 rounded-xl transition-all ${
+                    activeTab === tab.id 
+                      ? 'text-teal-500 bg-[#ebfaf6] scale-105' 
+                      : 'text-slate-400 hover:text-slate-600'
+                  }`}
+                >
+                  <tab.icon size={22} className={activeTab === tab.id ? 'stroke-[2.5]' : 'stroke-2'} />
+                  <span className="text-[10px] mt-1 font-medium">{tab.label}</span>
+                </button>
+              ))}
+            </div>
+          </nav>
+
+          {/* --- Modal: 刪除確認防呆視窗 --- */}
+          {deleteDialog.isOpen && (
+            <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm">
+              <div className="bg-white rounded-3xl w-full max-w-xs p-6 flex flex-col border border-slate-100 animate-in zoom-in-95">
+                <div className="w-12 h-12 bg-rose-100 text-rose-500 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <AlertTriangle size={24} />
+                </div>
+                <h3 className="text-lg font-bold text-slate-800 mb-2 text-center">確認刪除？</h3>
+                <p className="text-sm text-slate-500 mb-6 text-center leading-relaxed">
+                  {deleteDialog.type === 'item' ? 
+                    '刪除此物品將一併移除對應的支出紀錄，金額將退回至總餘額中，確定刪除嗎？' : 
+                    '此操作無法復原，確定要刪除這筆紀錄嗎？'
+                  }
+                </p>
+                <div className="flex gap-3">
+                  <button onClick={() => setDeleteDialog({ isOpen: false, type: '', id: '', data: null })} className="flex-1 py-3 bg-slate-100 text-slate-600 rounded-xl font-bold hover:bg-slate-200 transition-colors">我再想想</button>
+                  <button onClick={confirmDelete} className="flex-1 py-3 bg-rose-500 text-white rounded-xl font-bold hover:bg-rose-600 transition-colors">確認刪除</button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* --- Modal: 編輯明細內容 --- */}
+          {editDialog.isOpen && editDialog.data && (
+            <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm">
+              <div className="bg-white rounded-3xl w-full max-w-md max-h-[90vh] flex flex-col border border-slate-100 animate-in zoom-in-95 overflow-hidden">
+                <div className="p-5 border-b flex justify-between items-center bg-slate-50">
+                  <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                    <Pencil className="text-teal-500" size={20} /> 編輯{editDialog.type === 'transaction' ? '紀錄' : editDialog.type === 'subscription' ? '訂閱' : '物品'}
+                  </h3>
+                  <button onClick={() => setEditDialog({ isOpen: false, type: '', id: '', originalData: null, data: null })} className="text-slate-400 hover:bg-slate-200 p-1.5 rounded-full transition-colors">
+                    <X size={20} />
+                  </button>
+                </div>
+                <div className="p-6 overflow-y-auto">
+                  <form onSubmit={handleEditSubmit} className="space-y-4">
+                    {editDialog.type === 'transaction' && (
+                      <>
+                        <div className="flex gap-2 p-1 bg-slate-100 rounded-lg">
+                          <button type="button" onClick={() => setEditDialog({...editDialog, data: {...editDialog.data, type: 'expense'}})} className={`flex-1 py-2 rounded-md text-sm font-medium transition-colors ${editDialog.data.type === 'expense' ? 'bg-white shadow-sm text-rose-500' : 'text-slate-500'}`}>支出</button>
+                          <button type="button" onClick={() => setEditDialog({...editDialog, data: {...editDialog.data, type: 'income'}})} className={`flex-1 py-2 rounded-md text-sm font-medium transition-colors ${editDialog.data.type === 'income' ? 'bg-white shadow-sm text-[#35a788]' : 'text-slate-500'}`}>收入</button>
+                        </div>
+                        <div className="grid grid-cols-2 gap-3">
+                          <div>
+                            <label className="text-xs text-slate-500 ml-1 block mb-1">金額</label>
+                            <input type="number" required value={editDialog.data.amount} onChange={e => setEditDialog({...editDialog, data: {...editDialog.data, amount: e.target.value}})} className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-slate-800 focus:outline-none focus:ring-1 focus:ring-teal-500" />
+                          </div>
+                          <div>
+                            <label className="text-xs text-slate-500 ml-1 block mb-1">日期</label>
+                            <input type="date" required value={editDialog.data.date} onChange={e => setEditDialog({...editDialog, data: {...editDialog.data, date: e.target.value}})} className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-slate-800 focus:outline-none focus:ring-1 focus:ring-teal-500" />
+                          </div>
+                        </div>
+                        <div>
+                          <label className="text-xs text-slate-500 ml-1 block mb-1">項目說明</label>
+                          <input type="text" required value={editDialog.data.note} onChange={e => setEditDialog({...editDialog, data: {...editDialog.data, note: e.target.value}})} className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-slate-800 focus:outline-none focus:ring-1 focus:ring-teal-500" />
+                        </div>
+                      </>
+                    )}
+
+                    {editDialog.type === 'subscription' && (
+                      <>
+                        <div>
+                          <label className="text-xs text-slate-500 ml-1 block mb-1">訂閱名稱</label>
+                          <input type="text" required value={editDialog.data.name} onChange={e => setEditDialog({...editDialog, data: {...editDialog.data, name: e.target.value}})} className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-slate-800 focus:outline-none focus:ring-1 focus:ring-teal-500" />
+                        </div>
+                        <div className="grid grid-cols-2 gap-3">
+                          <div>
+                            <label className="text-xs text-slate-500 ml-1 block mb-1">扣款金額</label>
+                            <input type="number" required value={editDialog.data.amount} onChange={e => setEditDialog({...editDialog, data: {...editDialog.data, amount: e.target.value}})} className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-slate-800 focus:outline-none focus:ring-1 focus:ring-teal-500" />
+                          </div>
+                          <div>
+                            <label className="text-xs text-slate-500 ml-1 block mb-1">週期</label>
+                            <select value={editDialog.data.cycle} onChange={e => setEditDialog({...editDialog, data: {...editDialog.data, cycle: e.target.value}})} className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-slate-800 focus:outline-none focus:ring-1 focus:ring-teal-500">
+                              <option value="monthly">每月</option>
+                              <option value="quarterly">每季</option>
+                              <option value="yearly">每年</option>
+                            </select>
+                          </div>
+                        </div>
+                        <div>
+                          <label className="text-xs text-slate-500 ml-1 block mb-1">下次扣款日</label>
+                          <input type="date" required value={editDialog.data.nextDate} onChange={e => setEditDialog({...editDialog, data: {...editDialog.data, nextDate: e.target.value}})} className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-slate-800 focus:outline-none focus:ring-1 focus:ring-teal-500" />
+                        </div>
+                      </>
+                    )}
+
+                    {editDialog.type === 'item' && (
+                      <>
+                        <div>
+                          <label className="text-xs text-slate-500 ml-1 block mb-1">物品名稱</label>
+                          <input type="text" required value={editDialog.data.name} onChange={e => setEditDialog({...editDialog, data: {...editDialog.data, name: e.target.value}})} className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-slate-800 focus:outline-none focus:ring-1 focus:ring-teal-500" />
+                        </div>
+                        <div className="grid grid-cols-2 gap-3">
+                          <div>
+                            <label className="text-xs text-slate-500 ml-1 block mb-1">總金額</label>
+                            <input type="number" required value={editDialog.data.price} onChange={e => setEditDialog({...editDialog, data: {...editDialog.data, price: e.target.value}})} className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-slate-800 focus:outline-none focus:ring-1 focus:ring-teal-500" />
+                          </div>
+                          <div>
+                            <label className="text-xs text-slate-500 ml-1 block mb-1">購買日期</label>
+                            <input type="date" required value={editDialog.data.purchaseDate} onChange={e => setEditDialog({...editDialog, data: {...editDialog.data, purchaseDate: e.target.value}})} className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-slate-800 focus:outline-none focus:ring-1 focus:ring-teal-500" />
+                          </div>
+                        </div>
+                      </>
+                    )}
+
+                    <button type="submit" disabled={isSavingEdit} className="w-full bg-teal-500 hover:bg-teal-600 text-white py-3.5 rounded-xl font-bold mt-4 transition-all active:scale-95 flex justify-center items-center gap-2">
+                      {isSavingEdit ? <Loader2 className="animate-spin" size={18} /> : '儲存變更'}
+                    </button>
+                  </form>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* --- Modal: 編輯個人資料 --- */}
+          {isProfileOpen && (
+            <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm" onClick={() => setIsProfileOpen(false)}>
+              <div className="bg-white rounded-3xl w-full max-w-md max-h-[90vh] flex flex-col border border-slate-100 animate-in zoom-in-95 overflow-hidden" onClick={e => e.stopPropagation()}>
+                <div className="p-6 border-b flex justify-between items-center">
+                  <h3 className="text-xl font-bold flex items-center gap-2">
+                    <Settings className="text-teal-500" size={22} /> 個人資料設定
+                  </h3>
+                  <button onClick={() => setIsProfileOpen(false)} className="text-slate-400 hover:bg-slate-100 p-2 rounded-full transition-colors">
+                    <X size={20} />
+                  </button>
+                </div>
+                
+                <div className="p-6 overflow-y-auto space-y-5 overscroll-contain">
+                  
+                  {/* --- 上傳狀態提示訊息 --- */}
+                  {profileSaveMsg && (
+                    <div className={`p-3 rounded-xl text-sm font-medium flex items-center justify-center gap-2 animate-in fade-in slide-in-from-top-2 ${
+                      profileSaveMsg.type === 'error' ? 'bg-rose-50 text-rose-600 border border-rose-100' : 'bg-[#D4F5ED] text-[#35a788]'
+                    }`}>
+                      {profileSaveMsg.type === 'error' ? <AlertTriangle size={18} /> : <CheckCircle2 size={18} />}
+                      {profileSaveMsg.text}
+                    </div>
+                  )}
+
+                  <div className="flex justify-center">
+                    <div className="relative w-24 h-24 group">
+                      <input type="file" onChange={handleAvatarUpload} className="absolute inset-0 opacity-0 z-10 cursor-pointer" accept="image/*" />
+                      <div className="w-24 h-24 rounded-full overflow-hidden border-4 border-teal-100 bg-teal-50 flex items-center justify-center text-teal-300">
+                        {profileData?.avatar ? <img src={profileData.avatar} className="w-full h-full object-cover" /> : <User size={40} />}
+                      </div>
+                      <div className="absolute bottom-0 right-0 bg-teal-500 w-8 h-8 flex items-center justify-center rounded-full text-white border-2 border-white">
+                        <Camera size={14} />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="space-y-4">
+                    <div>
+                      <label className="text-xs font-bold text-slate-400 mb-1 block">我的暱稱</label>
+                      <input type="text" value={profileData?.nickname || ''} onChange={e => setProfileData({...profileData, nickname: e.target.value})} className="w-full p-3 bg-slate-50 rounded-xl border border-slate-200 focus:ring-2 focus:ring-teal-400 outline-none transition-all text-slate-800" placeholder="輸入暱稱" />
+                    </div>
+                    <div>
+                      <label className="text-xs font-bold text-slate-400 mb-1 block">更換主頁背景圖</label>
+                      <div className="mt-1 flex items-center gap-3">
+                        <input type="file" onChange={handleDashboardBgUpload} className="text-xs flex-grow cursor-pointer text-slate-500" accept="image/*" />
+                        {profileData?.dashboardBg && (
+                          <button onClick={() => setProfileData({...profileData, dashboardBg: ''})} className="text-rose-500 text-xs font-bold bg-rose-50 px-3 py-1.5 rounded-full hover:bg-rose-100 transition-colors shrink-0">
+                            移除背景
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  <button onClick={handleSaveProfile} disabled={isSavingProfile} className="w-full bg-teal-500 hover:bg-teal-600 text-white py-4 rounded-2xl font-bold mt-4 transition-all active:scale-95 flex justify-center items-center gap-2">
+                    {isSavingProfile ? <Loader2 className="animate-spin" size={18} /> : '確認修改'}
+                  </button>
+                  
+                  <button onClick={handleLogout} className="w-full text-slate-400 hover:text-rose-500 text-sm font-bold flex items-center justify-center gap-2 py-2 mt-2 transition-colors">
+                    <LogOut size={16} /> 登出帳號
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    // 掛載 React 應用程式到 #root 節點
+    const root = createRoot(document.getElementById('root'));
+    root.render(<App />);
+  </script>
+</body>
+</html>
+
