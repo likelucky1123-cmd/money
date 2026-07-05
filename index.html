@@ -42,7 +42,7 @@
   <!-- React 應用程式的掛載點 -->
   <div id="root"></div>
 
-  <!-- React 程式碼 -->
+  <!-- React 程式碼開始 -->
   <script type="text/babel" data-type="module">
     import React, { useState, useEffect, useRef } from 'react';
     import { createRoot } from 'react-dom/client';
@@ -59,7 +59,7 @@
       Home, List, CreditCard, Package, Plus, 
       TrendingUp, TrendingDown, DollarSign, Calendar, 
       Trash2, User, Lock, Mail, ChevronRight, Settings, 
-      CheckCircle2, Camera, X, Loader2, LogOut, Pencil, AlertTriangle
+      CheckCircle2, Camera, X, Loader2, LogOut, Pencil, AlertTriangle, Pause
     } from 'lucide-react';
 
     // --- Firebase 初始化 ---
@@ -110,7 +110,7 @@
       const [itemPrice, setItemPrice] = useState('');
       const [itemDate, setItemDate] = useState(getTodayString());
 
-      // --- 個人資料 Modal 與數據 ---
+      // --- 整合個人資料 Modal 與數據 ---
       const [isProfileOpen, setIsProfileOpen] = useState(false);
       const [isSavingProfile, setIsSavingProfile] = useState(false);
       const [profileSaveMsg, setProfileSaveMsg] = useState(null); 
@@ -172,7 +172,7 @@
         const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
           setUser(currentUser);
           if (currentUser) {
-            // 【快取加速】：一偵測到登入，立刻在背景從本地 localStorage 恢復上一次的資料，秒開應用
+            // 【快取加速】
             try {
               const cachedProfile = localStorage.getItem(`life_reflection_profile_${currentUser.uid}`);
               if (cachedProfile) setProfileData(JSON.parse(cachedProfile));
@@ -210,7 +210,6 @@
 
         const basePath = `artifacts/${APP_ID}/users/${user.uid}`;
 
-        // 監聽個人設定並寫入本地快取
         const unsubProfile = onSnapshot(doc(db, basePath, 'profile', 'info'), (docSnap) => {
           if (docSnap.exists()) {
             const data = docSnap.data();
@@ -224,7 +223,6 @@
           }
         });
 
-        // 監聽收支紀錄並寫入本地快取
         const unsubTx = onSnapshot(query(collection(db, basePath, 'transactions')), 
           (snap) => {
             const data = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
@@ -234,7 +232,6 @@
           }
         );
 
-        // 監聽訂閱紀錄並寫入本地快取
         const unsubSub = onSnapshot(query(collection(db, basePath, 'subscriptions')), 
           (snap) => {
             const data = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
@@ -244,7 +241,6 @@
           }
         );
 
-        // 監聽分攤物品並寫入本地快取
         const unsubItem = onSnapshot(query(collection(db, basePath, 'items')), 
           (snap) => {
             const data = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
@@ -264,6 +260,9 @@
           const today = getTodayString();
           
           for (const sub of subscriptions) {
+            // 如果訂閱已被標記為暫停，跳過自動扣款處理
+            if (sub.isPaused) continue;
+
             if (sub.nextDate <= today) {
               let currentDate = new Date(sub.nextDate);
               const todayDate = new Date(today);
@@ -340,7 +339,6 @@
 
       const handleLogout = async () => {
         if (user) {
-          // 清除當前帳戶本地快取避免混淆
           localStorage.removeItem(`life_reflection_profile_${user.uid}`);
           localStorage.removeItem(`life_reflection_txs_${user.uid}`);
           localStorage.removeItem(`life_reflection_subs_${user.uid}`);
@@ -465,6 +463,7 @@
             amount: parseFloat(subAmount),
             cycle: subCycle,
             nextDate: subDate,
+            isPaused: false, // 預設新增時為啟用狀態
             createdAt: Date.now()
           });
           setSubName('');
@@ -547,7 +546,6 @@
         setIsSavingEdit(false);
         setEditDialog({ isOpen: false, type: '', id: '', originalData: null, data: null });
       };
-
 
       // --- 頁面渲染 ---
 
@@ -894,20 +892,26 @@
                       onTouchEnd={(e) => handleTouchEnd(e, sub.id)}
                       className={`relative bg-white p-4 transition-transform duration-300 ease-out flex items-center justify-between ${swipedItemId === sub.id ? '-translate-x-[120px]' : 'translate-x-0'}`}
                     >
-                      <div className="absolute top-0 left-0 w-1 h-full bg-blue-500"></div>
+                      <div className={`absolute top-0 left-0 w-1 h-full ${sub.isPaused ? 'bg-slate-300' : 'bg-blue-500'}`}></div>
                       <div>
-                        <h4 className="font-bold text-slate-800 text-lg flex items-center gap-2">
+                        <h4 className={`font-bold text-lg flex items-center gap-2 ${sub.isPaused ? 'text-slate-500' : 'text-slate-800'}`}>
                           {sub.name}
-                          <span className="bg-[#D4F5ED] text-[#35a788] text-[10px] px-1.5 py-0.5 rounded-full flex items-center gap-1 border border-[#D4F5ED]">
-                             <CheckCircle2 size={10} /> 自動扣款中
-                          </span>
+                          {sub.isPaused ? (
+                            <span className="bg-slate-100 text-slate-500 text-[10px] px-1.5 py-0.5 rounded-full flex items-center gap-1 border border-slate-200">
+                               <Pause size={10} /> 已暫停
+                            </span>
+                          ) : (
+                            <span className="bg-[#D4F5ED] text-[#35a788] text-[10px] px-1.5 py-0.5 rounded-full flex items-center gap-1 border border-[#D4F5ED]">
+                               <CheckCircle2 size={10} /> 自動扣款中
+                            </span>
+                          )}
                         </h4>
                         <div className="text-sm text-slate-500 flex items-center gap-1 mt-1">
                           <Calendar size={14}/> 下次: <span className="font-medium text-slate-700">{sub.nextDate}</span>
                         </div>
                       </div>
                       <div className="text-right">
-                        <div className="font-bold text-rose-600">${sub.amount.toLocaleString()}</div>
+                        <div className={`font-bold ${sub.isPaused ? 'text-slate-400' : 'text-rose-600'}`}>${sub.amount.toLocaleString()}</div>
                         <div className="text-xs text-slate-400">
                           / {sub.cycle === 'monthly' ? '月' : sub.cycle === 'quarterly' ? '季' : '年'}
                         </div>
@@ -992,7 +996,6 @@
 
       return (
         <div className="min-h-screen bg-slate-50 font-sans pb-24 selection:bg-[#D4F5ED]" onClick={closeSwipe}>
-          {/* 【層級修正】：Header 層級調高至 z-40，並使用 bg-white 與 shadow 完美遮擋向上滑動的內容 */}
           <header className="bg-white sticky top-0 z-40 px-6 py-4 shadow-sm flex justify-between items-center">
             <h1 className="text-xl font-bold text-slate-800 flex items-center gap-2">
               {activeTab === 'dashboard' && <Home size={22} className="text-teal-500"/>}
@@ -1006,7 +1009,6 @@
               }
             </h1>
             
-            {/* 右上角頭像 */}
             <button 
               onClick={(e) => { e.stopPropagation(); setIsProfileOpen(true); }}
               className="w-8 h-8 rounded-full overflow-hidden border border-slate-200 hover:border-teal-500 transition-colors bg-slate-100 flex items-center justify-center shrink-0"
@@ -1112,6 +1114,21 @@
 
                     {editDialog.type === 'subscription' && (
                       <>
+                        {/* 暫停訂閱開關 */}
+                        <div className="flex items-center justify-between p-3 bg-slate-50 rounded-xl border border-slate-200 mb-2">
+                          <div>
+                            <label className="text-sm font-bold text-slate-700 block">暫停訂閱</label>
+                            <span className="text-xs text-slate-500">開啟後將暫時停止自動扣款</span>
+                          </div>
+                          <button 
+                            type="button"
+                            onClick={() => setEditDialog({...editDialog, data: {...editDialog.data, isPaused: !editDialog.data.isPaused}})}
+                            className={`w-12 h-6 rounded-full transition-colors relative flex items-center ${editDialog.data.isPaused ? 'bg-teal-500' : 'bg-slate-300'}`}
+                          >
+                            <span className={`w-4 h-4 bg-white rounded-full absolute shadow-sm transition-transform duration-200 ease-in-out ${editDialog.data.isPaused ? 'translate-x-7' : 'translate-x-1'}`}></span>
+                          </button>
+                        </div>
+                        
                         <div>
                           <label className="text-xs text-slate-500 ml-1 block mb-1">訂閱名稱</label>
                           <input type="text" required value={editDialog.data.name} onChange={e => setEditDialog({...editDialog, data: {...editDialog.data, name: e.target.value}})} className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-slate-800 focus:outline-none focus:ring-1 focus:ring-teal-500" />
@@ -1139,6 +1156,7 @@
 
                     {editDialog.type === 'item' && (
                       <>
+                        <p className="text-xs text-teal-600 mb-2 bg-teal-50 p-2 rounded-lg leading-relaxed">變更此處的名稱與金額，將會同步更新您的收支紀錄中對應的項目。</p>
                         <div>
                           <label className="text-xs text-slate-500 ml-1 block mb-1">物品名稱</label>
                           <input type="text" required value={editDialog.data.name} onChange={e => setEditDialog({...editDialog, data: {...editDialog.data, name: e.target.value}})} className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-slate-800 focus:outline-none focus:ring-1 focus:ring-teal-500" />
