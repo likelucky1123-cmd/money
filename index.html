@@ -117,7 +117,8 @@
       const [profileData, setProfileData] = useState({
         nickname: '',
         avatar: '',
-        dashboardBg: ''
+        dashboardBg: '',
+        signature: ''
       });
 
       // --- 全域彈窗與滑動狀態 ---
@@ -204,7 +205,7 @@
           setTransactions([]);
           setSubscriptions([]);
           setItems([]);
-          setProfileData({ nickname: '', avatar: '', dashboardBg: '' });
+          setProfileData({ nickname: '', avatar: '', dashboardBg: '', signature: '' });
           return;
         }
 
@@ -216,7 +217,8 @@
             const updated = {
               nickname: data.nickname || user.displayName || '',
               avatar: data.avatar || '',
-              dashboardBg: data.dashboardBg || ''
+              dashboardBg: data.dashboardBg || '',
+              signature: data.signature || ''
             };
             setProfileData(updated);
             localStorage.setItem(`life_reflection_profile_${user.uid}`, JSON.stringify(updated));
@@ -260,7 +262,6 @@
           const today = getTodayString();
           
           for (const sub of subscriptions) {
-            // 如果訂閱已被標記為暫停，跳過自動扣款處理
             if (sub.isPaused) continue;
 
             if (sub.nextDate <= today) {
@@ -417,17 +418,18 @@
           await setDoc(doc(db, `artifacts/${APP_ID}/users/${user.uid}/profile`, 'info'), {
             nickname: profileData.nickname,
             avatar: profileData.avatar || '',
-            dashboardBg: profileData.dashboardBg || ''
+            dashboardBg: profileData.dashboardBg || '',
+            signature: profileData.signature || ''
           }, { merge: true });
           
           setUser({ ...auth.currentUser, displayName: profileData.nickname });
           
           setProfileSaveMsg({ type: 'success', text: '設定已成功儲存！' });
           
+          // 【優化行為】：不直接關閉 modal，僅在 2 秒後清除成功訊息
           setTimeout(() => {
-            setIsProfileOpen(false);
             setProfileSaveMsg(null);
-          }, 1500);
+          }, 2000);
 
         } catch (err) { 
           console.error(err); 
@@ -463,7 +465,7 @@
             amount: parseFloat(subAmount),
             cycle: subCycle,
             nextDate: subDate,
-            isPaused: false, // 預設新增時為啟用狀態
+            isPaused: false,
             createdAt: Date.now()
           });
           setSubName('');
@@ -546,6 +548,7 @@
         setIsSavingEdit(false);
         setEditDialog({ isOpen: false, type: '', id: '', originalData: null, data: null });
       };
+
 
       // --- 頁面渲染 ---
 
@@ -932,7 +935,7 @@
               <Package size={18} className="text-orange-500" /> 新增物品
             </h3>
             <form onSubmit={handleAddItem} className="space-y-3">
-              <input type="text" required placeholder="物品名稱 (例如: 筆電、手機)" value={itemName} onChange={e => setItemName(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-slate-800 focus:outline-none focus:border-orange-500 focus:ring-1 focus:ring-orange-500" />
+              <input type="text" required placeholder="物品名稱 (Example: 手機)" value={itemName} onChange={e => setItemName(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-slate-800 focus:outline-none focus:border-orange-500 focus:ring-1 focus:ring-orange-500" />
               <div className="grid grid-cols-2 gap-3">
                  <input type="number" required placeholder="總金額" value={itemPrice} onChange={e => setItemPrice(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-slate-800 focus:outline-none focus:border-orange-500 focus:ring-1 focus:ring-orange-500" />
                  <input type="date" required value={itemDate} onChange={e => setItemDate(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-slate-800 focus:outline-none focus:border-orange-500 focus:ring-1 focus:ring-orange-500" />
@@ -1009,15 +1012,16 @@
               }
             </h1>
             
+            {/* --- 右上角頭像：加上附圖顏色的精緻薄荷綠外框 border-[#C7F3EC] --- */}
             <button 
               onClick={(e) => { e.stopPropagation(); setIsProfileOpen(true); }}
-              className="w-8 h-8 rounded-full overflow-hidden border border-slate-200 hover:border-teal-500 transition-colors bg-slate-100 flex items-center justify-center shrink-0"
+              className="w-8 h-8 rounded-full overflow-hidden border-2 border-[#C7F3EC] bg-slate-100 flex items-center justify-center shrink-0 shadow-sm"
               title="編輯個人資料"
             >
               {profileData?.avatar ? (
                 <img src={profileData.avatar} alt="Avatar" className="w-full h-full object-cover" />
               ) : (
-                <User size={16} className="text-slate-400" />
+                <User size={16} className="text-teal-500" />
               )}
             </button>
           </header>
@@ -1114,7 +1118,6 @@
 
                     {editDialog.type === 'subscription' && (
                       <>
-                        {/* 暫停訂閱開關 */}
                         <div className="flex items-center justify-between p-3 bg-slate-50 rounded-xl border border-slate-200 mb-2">
                           <div>
                             <label className="text-sm font-bold text-slate-700 block">暫停訂閱</label>
@@ -1128,7 +1131,6 @@
                             <span className={`w-4 h-4 bg-white rounded-full absolute shadow-sm transition-transform duration-200 ease-in-out ${editDialog.data.isPaused ? 'translate-x-7' : 'translate-x-1'}`}></span>
                           </button>
                         </div>
-                        
                         <div>
                           <label className="text-xs text-slate-500 ml-1 block mb-1">訂閱名稱</label>
                           <input type="text" required value={editDialog.data.name} onChange={e => setEditDialog({...editDialog, data: {...editDialog.data, name: e.target.value}})} className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-slate-800 focus:outline-none focus:ring-1 focus:ring-teal-500" />
@@ -1208,11 +1210,12 @@
                     </div>
                   )}
 
+                  {/* 頭像上傳：外框換上附圖代表的粉綠色 border-[#C7F3EC] */}
                   <div className="flex justify-center">
                     <div className="relative w-24 h-24 group">
                       <input type="file" onChange={handleAvatarUpload} className="absolute inset-0 opacity-0 z-10 cursor-pointer" accept="image/*" />
-                      <div className="w-24 h-24 rounded-full overflow-hidden border-4 border-teal-100 bg-teal-50 flex items-center justify-center text-teal-300">
-                        {profileData?.avatar ? <img src={profileData.avatar} className="w-full h-full object-cover" /> : <User size={40} />}
+                      <div className="w-24 h-24 rounded-full overflow-hidden border-4 border-[#C7F3EC] bg-slate-50 flex items-center justify-center text-teal-300 shadow-sm">
+                        {profileData?.avatar ? <img src={profileData.avatar} className="w-full h-full object-cover" /> : <User size={40} className="text-[#35a788]" />}
                       </div>
                       <div className="absolute bottom-0 right-0 bg-teal-500 w-8 h-8 flex items-center justify-center rounded-full text-white border-2 border-white">
                         <Camera size={14} />
@@ -1223,7 +1226,11 @@
                   <div className="space-y-4">
                     <div>
                       <label className="text-xs font-bold text-slate-400 mb-1 block">我的暱稱</label>
-                      <input type="text" value={profileData?.nickname || ''} onChange={e => setProfileData({...profileData, nickname: e.target.value})} className="w-full p-3 bg-slate-50 rounded-xl border border-slate-200 focus:ring-2 focus:ring-teal-400 outline-none transition-all text-slate-800" placeholder="輸入暱稱" />
+                      <input type="text" value={profileData?.nickname || ''} onChange={e => setProfileData({...profileData, nickname: e.target.value})} className="w-full p-3 bg-slate-50 rounded-xl border border-slate-200 focus:ring-2 focus:ring-[#C7F3EC] outline-none transition-all text-slate-800" placeholder="輸入暱稱" />
+                    </div>
+                    <div>
+                      <label className="text-xs font-bold text-slate-400 mb-1 block">個性簽名</label>
+                      <textarea value={profileData?.signature || ''} onChange={e => setProfileData({...profileData, signature: e.target.value})} rows="2" className="w-full p-3 bg-slate-50 rounded-xl border border-slate-200 focus:ring-2 focus:ring-[#C7F3EC] outline-none transition-all text-slate-800 resize-none" placeholder="寫一句話介紹自己..."></textarea>
                     </div>
                     <div>
                       <label className="text-xs font-bold text-slate-400 mb-1 block">更換主頁背景圖</label>
