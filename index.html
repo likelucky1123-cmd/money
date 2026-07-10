@@ -78,6 +78,119 @@
     const db = getFirestore(app);
     const APP_ID = 'popcorn-ee2cc';
 
+    // --- 自定義下拉分類選擇器 (比照附圖功能開發) ---
+    function CategorySelector({ value, onChange, uniqueCategories, placeholder }) {
+      const [isOpen, setIsOpen] = useState(false);
+      const [isAdding, setIsAdding] = useState(false);
+      const [newCatName, setNewCatName] = useState('');
+      const containerRef = useRef(null);
+
+      // 點擊外面時自動關閉選單
+      useEffect(() => {
+        function handleClickOutside(event) {
+          if (containerRef.current && !containerRef.current.contains(event.target)) {
+            setIsOpen(false);
+            setIsAdding(false);
+          }
+        }
+        document.addEventListener("mousedown", handleClickOutside);
+        return () => document.removeEventListener("mousedown", handleClickOutside);
+      }, []);
+
+      const handleSelect = (cat) => {
+        onChange(cat);
+        setIsOpen(false);
+      };
+
+      const handleCreateCategory = (e) => {
+        e.preventDefault();
+        const trimmed = newCatName.trim();
+        if (trimmed) {
+          onChange(trimmed);
+          setIsAdding(false);
+          setNewCatName('');
+          setIsOpen(false);
+        }
+      };
+
+      // 確保即使歷史紀錄為空，也有一些預設供新用戶參考
+      const baseList = uniqueCategories.length > 0 
+        ? uniqueCategories 
+        : ['飲食', '購物', '娛樂', '數位', '居家', '交通'];
+
+      return (
+        <div className="relative w-full" ref={containerRef}>
+          <button
+            type="button"
+            onClick={() => setIsOpen(!isOpen)}
+            className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-slate-800 text-sm text-left flex justify-between items-center focus:ring-2 focus:ring-[#C7F3EC] outline-none transition-all"
+          >
+            <span className={value ? "text-slate-800" : "text-slate-400"}>
+              {value || placeholder}
+            </span>
+            <span className="text-slate-400 text-xs">▼</span>
+          </button>
+
+          {isOpen && (
+            <div className="absolute left-0 right-0 mt-2 bg-white border border-slate-100 rounded-3xl shadow-xl z-50 p-2 overflow-hidden animate-in zoom-in-95 duration-100 max-h-60 flex flex-col">
+              <div className="overflow-y-auto flex-1 space-y-1">
+                {baseList.map((cat) => (
+                  <button
+                    key={cat}
+                    type="button"
+                    onClick={() => handleSelect(cat)}
+                    className="w-full text-left px-4 py-2.5 text-sm rounded-2xl hover:bg-slate-50 transition-colors flex items-center justify-between"
+                  >
+                    <span className={value === cat ? "font-bold text-[#35a788]" : "text-slate-700"}>
+                      {cat}
+                    </span>
+                    {value === cat && <span className="text-[#35a788] font-bold text-sm">✓</span>}
+                  </button>
+                ))}
+              </div>
+
+              <div className="border-t border-slate-100 mt-2 pt-2">
+                {!isAdding ? (
+                  <button
+                    type="button"
+                    onClick={() => setIsAdding(true)}
+                    className="w-full py-2.5 text-center text-sm font-semibold text-slate-500 hover:text-teal-600 transition-colors rounded-2xl hover:bg-slate-50"
+                  >
+                    + 新增自訂分類
+                  </button>
+                ) : (
+                  <form onSubmit={handleCreateCategory} className="flex gap-2 p-1">
+                    <input
+                      type="text"
+                      required
+                      placeholder="輸入新分類名稱"
+                      value={newCatName}
+                      onChange={(e) => setNewCatName(e.target.value)}
+                      className="flex-1 px-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-teal-500"
+                      autoFocus
+                    />
+                    <button
+                      type="submit"
+                      className="px-3 py-1.5 bg-teal-500 hover:bg-teal-600 text-white text-xs font-bold rounded-xl transition-all"
+                    >
+                      確定
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setIsAdding(false)}
+                      className="px-2 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-500 text-xs rounded-xl"
+                    >
+                      取消
+                    </button>
+                  </form>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    }
+
     function App() {
       // --- 身份驗證狀態 ---
       const [user, setUser] = useState(null);
@@ -99,6 +212,7 @@
       const [txType, setTxType] = useState('expense');
       const [txAmount, setTxAmount] = useState('');
       const [txNote, setTxNote] = useState('');
+      const [txCategory, setTxCategory] = useState(''); 
       const [txDate, setTxDate] = useState(getTodayString());
 
       const [subName, setSubName] = useState('');
@@ -108,6 +222,7 @@
 
       const [itemName, setItemName] = useState('');
       const [itemPrice, setItemPrice] = useState('');
+      const [itemCategory, setItemCategory] = useState(''); 
       const [itemDate, setItemDate] = useState(getTodayString());
 
       // --- 整合個人資料 Modal 與數據 ---
@@ -136,12 +251,12 @@
         return localDate.toISOString().split('T')[0];
       }
 
-      const getDaysUsed = (purchaseDateStr) => {
+      const getDaysUsed = (purchaseDateStr, retireDateStr, isRetired) => {
         const start = new Date(purchaseDateStr);
-        const today = new Date();
+        const end = (isRetired && retireDateStr) ? new Date(retireDateStr) : new Date();
         start.setHours(0, 0, 0, 0);
-        today.setHours(0, 0, 0, 0);
-        const diffTime = today - start;
+        end.setHours(0, 0, 0, 0);
+        const diffTime = end - start;
         const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
         return diffDays >= 0 ? diffDays + 1 : 1; 
       };
@@ -149,6 +264,16 @@
       const totalIncome = transactions.filter(t => t.type === 'income').reduce((sum, t) => sum + t.amount, 0);
       const totalExpense = transactions.filter(t => t.type === 'expense').reduce((sum, t) => sum + t.amount, 0);
       const currentBalance = totalIncome - totalExpense;
+
+      // 提取目前帳戶中所有不重複自定義分類（不包含系統保護的 '訂閱'，統一由扣款指派）
+      const uniqueCategories = Array.from(
+        new Set(
+          [
+            ...transactions.map(t => t.category),
+            ...items.map(i => i.category)
+          ].filter(c => c && c !== '訂閱')
+        )
+      );
 
       // --- 滑動操作 (Swipe to Reveal) ---
       const handleTouchStart = (e) => {
@@ -262,9 +387,30 @@
           const today = getTodayString();
           
           for (const sub of subscriptions) {
-            if (sub.isPaused) continue;
+            if (sub.isPaused || sub.isPaid) continue;
 
             if (sub.nextDate <= today) {
+              // 處理買斷（一次性扣款）
+              if (sub.cycle === 'buyout') {
+                try {
+                  await addDoc(collection(db, `artifacts/${APP_ID}/users/${user.uid}/transactions`), {
+                    type: 'expense',
+                    amount: sub.amount,
+                    note: `買斷訂閱: ${sub.name}`,
+                    category: '訂閱', 
+                    date: sub.nextDate,
+                    createdAt: Date.now()
+                  });
+                  await updateDoc(doc(db, `artifacts/${APP_ID}/users/${user.uid}/subscriptions`, sub.id), {
+                    isPaid: true,
+                    isPaused: true,
+                    nextDate: '已付清'
+                  });
+                } catch (err) { console.error("買斷處理失敗", err); }
+                continue;
+              }
+
+              // 處理週期性扣款
               let currentDate = new Date(sub.nextDate);
               const todayDate = new Date(today);
               let expenseCount = 0;
@@ -286,6 +432,7 @@
                       type: 'expense',
                       amount: sub.amount,
                       note: `自動訂閱扣款: ${sub.name}`,
+                      category: '訂閱', 
                       date: dDate,
                       createdAt: Date.now()
                     });
@@ -426,7 +573,7 @@
           
           setProfileSaveMsg({ type: 'success', text: '設定已成功儲存！' });
           
-          // 【優化行為】：不直接關閉 modal，僅在 2 秒後清除成功訊息
+          // 儲存成功，僅在兩秒後移除成功字樣，保留個人資訊視窗
           setTimeout(() => {
             setProfileSaveMsg(null);
           }, 2000);
@@ -442,17 +589,20 @@
       // --- 資料收支新增 ---
       const handleAddTransaction = async (e) => {
         e.preventDefault();
+        const finalCategory = txCategory.trim() || '未分類';
         if (!txAmount || !txNote || !user) return;
         try {
           await addDoc(collection(db, `artifacts/${APP_ID}/users/${user.uid}/transactions`), {
             type: txType,
             amount: parseFloat(txAmount),
             note: txNote,
+            category: finalCategory,
             date: txDate,
             createdAt: Date.now()
           });
           setTxAmount('');
           setTxNote('');
+          setTxCategory('');
         } catch (err) { console.error(err); }
       };
 
@@ -466,6 +616,7 @@
             cycle: subCycle,
             nextDate: subDate,
             isPaused: false,
+            isPaid: false,
             createdAt: Date.now()
           });
           setSubName('');
@@ -475,24 +626,32 @@
 
       const handleAddItem = async (e) => {
         e.preventDefault();
+        const finalCategory = itemCategory.trim() || '未分類';
         if (!itemName || !itemPrice || !user) return;
         try {
           const priceNum = parseFloat(itemPrice);
+          // 1. 新增物品追蹤
           await addDoc(collection(db, `artifacts/${APP_ID}/users/${user.uid}/items`), {
             name: itemName,
             price: priceNum,
+            category: finalCategory,
             purchaseDate: itemDate,
+            isRetired: false,
+            retireDate: '',
             createdAt: Date.now()
           });
+          // 2. 自動計入支出
           await addDoc(collection(db, `artifacts/${APP_ID}/users/${user.uid}/transactions`), {
             type: 'expense',
             amount: priceNum,
             note: `分攤購入: ${itemName}`,
+            category: finalCategory,
             date: itemDate,
             createdAt: Date.now()
           });
           setItemName('');
           setItemPrice('');
+          setItemCategory('');
         } catch (err) { console.error(err); }
       };
 
@@ -539,6 +698,7 @@
               await updateDoc(doc(db, `artifacts/${APP_ID}/users/${user.uid}/transactions`, matchedTx.id), {
                 note: `分攤購入: ${payload.name}`,
                 amount: payload.price,
+                category: payload.category || '未分類',
                 date: payload.purchaseDate
               });
             }
@@ -548,6 +708,14 @@
         setIsSavingEdit(false);
         setEditDialog({ isOpen: false, type: '', id: '', originalData: null, data: null });
       };
+
+      // --- 排序物品：未淘汰優先在上方，已淘汰沉底排序 ---
+      const sortedItems = [...items].sort((a, b) => {
+        const aRet = a.isRetired ? 1 : 0;
+        const bRet = b.isRetired ? 1 : 0;
+        if (aRet !== bRet) return aRet - bRet;
+        return b.createdAt - a.createdAt; 
+      });
 
 
       // --- 頁面渲染 ---
@@ -644,8 +812,11 @@
       const renderDashboard = () => {
         const expenses = transactions.filter(t => t.type === 'expense');
         const expenseGroups = {};
+        
         expenses.forEach(t => {
-          const key = t.note || '未分類';
+          // 強制將「訂閱扣款」、「買斷訂閱」、「自動訂閱扣款」統一歸類為「訂閱」
+          const isSub = t.category === '訂閱' || t.note?.includes('訂閱扣款') || t.note?.includes('買斷訂閱');
+          const key = isSub ? '訂閱' : (t.category || '其他');
           expenseGroups[key] = (expenseGroups[key] || 0) + t.amount;
         });
 
@@ -687,7 +858,14 @@
                 </div>
               )}
               <div className="relative z-10 flex justify-between items-start mb-1 drop-shadow-md">
-                <h2 className="text-white font-medium">總餘額</h2>
+                <div className="flex flex-col items-start gap-1">
+                  <h2 className="text-white font-medium">總餘額</h2>
+                  {profileData.signature && (
+                    <span className="text-[10px] text-white/85 max-w-[180px] truncate block" title={profileData.signature}>
+                      “ {profileData.signature} ”
+                    </span>
+                  )}
+                </div>
                 <button 
                   onClick={() => setIsProfileOpen(true)}
                   className="bg-black/10 px-2.5 py-1 rounded-full text-xs backdrop-blur-md flex items-center gap-2 hover:bg-black/20 transition-colors border border-white/20"
@@ -749,10 +927,10 @@
               </button>
             </div>
 
-            {/* 支出佔比圓餅圖 */}
+            {/* 分類支出分析 */}
             <div className="bg-white p-5 rounded-2xl border border-slate-100 animate-in fade-in shadow-sm">
               <h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2">
-                <div className="w-1.5 h-4 bg-teal-500 rounded-full"></div> 支出分析
+                <div className="w-1.5 h-4 bg-teal-500 rounded-full"></div> 分類支出分析
               </h3>
               {totalChartValue === 0 ? (
                 <div className="text-center text-slate-400 py-6 text-sm">尚無支出紀錄</div>
@@ -797,9 +975,18 @@
                 <button type="button" onClick={() => setTxType('expense')} className={`flex-1 py-2 rounded-md text-sm font-medium transition-colors ${txType === 'expense' ? 'bg-white shadow-sm text-rose-500' : 'text-slate-500 hover:bg-slate-200'}`}>支出</button>
                 <button type="button" onClick={() => setTxType('income')} className={`flex-1 py-2 rounded-md text-sm font-medium transition-colors ${txType === 'income' ? 'bg-white shadow-sm text-[#35a788]' : 'text-slate-500 hover:bg-slate-200'}`}>收入</button>
               </div>
-              <div className="grid grid-cols-2 gap-3">
-                <input type="number" required placeholder="金額" value={txAmount} onChange={e => setTxAmount(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-slate-800 focus:outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500" />
-                <input type="date" required value={txDate} onChange={e => setTxDate(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-slate-800 focus:outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500" />
+              <div className="grid grid-cols-3 gap-2">
+                <input type="number" required placeholder="金額" value={txAmount} onChange={e => setTxAmount(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-slate-800 text-sm focus:outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500" />
+                
+                {/* 附圖自定義分類下拉元件 */}
+                <CategorySelector 
+                  value={txCategory} 
+                  onChange={setTxCategory} 
+                  uniqueCategories={uniqueCategories}
+                  placeholder="選擇分類"
+                />
+                
+                <input type="date" required value={txDate} onChange={e => setTxDate(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2 py-2 text-slate-800 text-sm focus:outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500" />
               </div>
               <input type="text" required placeholder="項目說明 (例如: 早餐、薪水)" value={txNote} onChange={e => setTxNote(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-slate-800 focus:outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500" />
               <button type="submit" className="w-full bg-teal-500 text-white font-medium py-3 rounded-lg hover:bg-teal-600 transition-colors">儲存紀錄</button>
@@ -833,7 +1020,10 @@
                           {tx.type === 'income' ? <TrendingUp size={20} /> : <TrendingDown size={20} />}
                         </div>
                         <div>
-                          <div className="font-medium text-slate-800">{tx.note}</div>
+                          <div className="font-medium text-slate-800 flex items-center gap-2">
+                            {tx.note}
+                            {tx.category && <span className="text-[10px] bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded-full">{tx.category}</span>}
+                          </div>
                           <div className="text-xs text-slate-500">{tx.date}</div>
                         </div>
                       </div>
@@ -863,10 +1053,11 @@
                     <option value="monthly">每月</option>
                     <option value="quarterly">每季</option>
                     <option value="yearly">每年</option>
+                    <option value="buyout">買斷 (一次性)</option>
                  </select>
               </div>
               <div>
-                <label className="text-xs text-slate-500 mb-1 ml-1 block">首次/下次扣款日</label>
+                <label className="text-xs text-slate-500 mb-1 ml-1 block font-bold">首次/下次扣款日</label>
                 <input type="date" required value={subDate} onChange={e => setSubDate(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-slate-800 focus:outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500" />
               </div>
               <button type="submit" className="w-full bg-teal-500 text-white font-medium py-3 rounded-lg hover:bg-teal-600 transition-colors mt-2">新增訂閱</button>
@@ -895,11 +1086,15 @@
                       onTouchEnd={(e) => handleTouchEnd(e, sub.id)}
                       className={`relative bg-white p-4 transition-transform duration-300 ease-out flex items-center justify-between ${swipedItemId === sub.id ? '-translate-x-[120px]' : 'translate-x-0'}`}
                     >
-                      <div className={`absolute top-0 left-0 w-1 h-full ${sub.isPaused ? 'bg-slate-300' : 'bg-blue-500'}`}></div>
+                      <div className={`absolute top-0 left-0 w-1 h-full ${sub.isPaid ? 'bg-emerald-400' : sub.isPaused ? 'bg-slate-300' : 'bg-blue-500'}`}></div>
                       <div>
-                        <h4 className={`font-bold text-lg flex items-center gap-2 ${sub.isPaused ? 'text-slate-500' : 'text-slate-800'}`}>
+                        <h4 className={`font-bold text-lg flex items-center gap-2 ${sub.isPaid ? 'text-slate-400' : sub.isPaused ? 'text-slate-500' : 'text-slate-800'}`}>
                           {sub.name}
-                          {sub.isPaused ? (
+                          {sub.isPaid ? (
+                            <span className="bg-[#D4F5ED] text-[#35a788] text-[10px] px-1.5 py-0.5 rounded-full flex items-center gap-1 border border-[#D4F5ED]">
+                               已付清 (買斷)
+                            </span>
+                          ) : sub.isPaused ? (
                             <span className="bg-slate-100 text-slate-500 text-[10px] px-1.5 py-0.5 rounded-full flex items-center gap-1 border border-slate-200">
                                <Pause size={10} /> 已暫停
                             </span>
@@ -910,13 +1105,13 @@
                           )}
                         </h4>
                         <div className="text-sm text-slate-500 flex items-center gap-1 mt-1">
-                          <Calendar size={14}/> 下次: <span className="font-medium text-slate-700">{sub.nextDate}</span>
+                          <Calendar size={14}/> {sub.isPaid ? '狀態: 買斷結算完成' : `下次: ${sub.nextDate}`}
                         </div>
                       </div>
                       <div className="text-right">
-                        <div className={`font-bold ${sub.isPaused ? 'text-slate-400' : 'text-rose-600'}`}>${sub.amount.toLocaleString()}</div>
+                        <div className={`font-bold ${sub.isPaid ? 'text-slate-400' : sub.isPaused ? 'text-slate-400' : 'text-rose-600'}`}>${sub.amount.toLocaleString()}</div>
                         <div className="text-xs text-slate-400">
-                          / {sub.cycle === 'monthly' ? '月' : sub.cycle === 'quarterly' ? '季' : '年'}
+                          / {sub.cycle === 'buyout' ? '買斷' : sub.cycle === 'monthly' ? '月' : sub.cycle === 'quarterly' ? '季' : '年'}
                         </div>
                       </div>
                     </div>
@@ -935,26 +1130,35 @@
               <Package size={18} className="text-orange-500" /> 新增物品
             </h3>
             <form onSubmit={handleAddItem} className="space-y-3">
-              <input type="text" required placeholder="物品名稱 (Example: 手機)" value={itemName} onChange={e => setItemName(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-slate-800 focus:outline-none focus:border-orange-500 focus:ring-1 focus:ring-orange-500" />
-              <div className="grid grid-cols-2 gap-3">
-                 <input type="number" required placeholder="總金額" value={itemPrice} onChange={e => setItemPrice(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-slate-800 focus:outline-none focus:border-orange-500 focus:ring-1 focus:ring-orange-500" />
-                 <input type="date" required value={itemDate} onChange={e => setItemDate(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-slate-800 focus:outline-none focus:border-orange-500 focus:ring-1 focus:ring-orange-500" />
+              <input type="text" required placeholder="物品名稱 (例如: 筆電、手機)" value={itemName} onChange={e => setItemName(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-slate-800 focus:outline-none focus:border-orange-500 focus:ring-1 focus:ring-orange-500" />
+              <div className="grid grid-cols-3 gap-2">
+                 <input type="number" required placeholder="總金額" value={itemPrice} onChange={e => setItemPrice(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2 py-2 text-slate-800 text-sm focus:outline-none focus:border-orange-500" />
+                 
+                 {/* 附圖自定義分類下拉元件 */}
+                 <CategorySelector 
+                   value={itemCategory} 
+                   onChange={setItemCategory} 
+                   uniqueCategories={uniqueCategories}
+                   placeholder="分類"
+                 />
+
+                 <input type="date" required value={itemDate} onChange={e => setItemDate(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2 py-2 text-slate-800 text-sm focus:outline-none focus:border-orange-500" />
               </div>
               <button type="submit" className="w-full bg-orange-500 text-white font-medium py-3 rounded-lg hover:bg-orange-600 transition-colors mt-2">新增並計入支出</button>
             </form>
           </div>
 
           <div>
-            <h3 className="font-bold text-slate-800 mb-3 px-1">物品分攤分析 (向左滑動操作)</h3>
+            <h3 className="font-bold text-slate-800 mb-3 px-1">物品分攤 analysis (向左滑動操作)</h3>
             <div className="space-y-3">
               {items.length === 0 ? (
                 <div className="text-center text-slate-400 py-8 bg-white rounded-2xl border border-dashed border-slate-200">尚無物品資料</div>
               ) : (
-                items.map(item => {
-                  const daysUsed = getDaysUsed(item.purchaseDate);
+                sortedItems.map(item => {
+                  const daysUsed = getDaysUsed(item.purchaseDate, item.retireDate, item.isRetired);
                   const dailyCost = (item.price / daysUsed).toFixed(1);
                   return (
-                    <div key={item.id} className="relative overflow-hidden rounded-xl shadow-sm border border-slate-100 bg-white">
+                    <div key={item.id} className={`relative overflow-hidden rounded-xl shadow-sm border border-slate-100 bg-white transition-all ${item.isRetired ? 'opacity-60 bg-slate-100/70 grayscale-[20%]' : ''}`}>
                       <div className="absolute right-0 top-0 bottom-0 flex w-[120px]">
                         <button onClick={() => { setEditDialog({ isOpen: true, type: 'item', id: item.id, originalData: item, data: { ...item } }); setSwipedItemId(null); }} className="flex-1 bg-teal-500 flex items-center justify-center text-white active:bg-teal-600 transition-colors">
                           <Pencil size={18} />
@@ -969,9 +1173,23 @@
                         onTouchEnd={(e) => handleTouchEnd(e, item.id)}
                         className={`relative bg-white p-4 transition-transform duration-300 ease-out ${swipedItemId === item.id ? '-translate-x-[120px]' : 'translate-x-0'}`}
                       >
-                        <div className="mb-3">
-                          <h4 className="font-bold text-slate-800">{item.name}</h4>
-                          <div className="text-xs text-slate-500 mt-0.5">購入於 {item.purchaseDate}</div>
+                        <div className="mb-3 flex justify-between items-start">
+                          <div>
+                            <h4 className={`font-bold flex items-center gap-2 ${item.isRetired ? 'text-slate-500 line-through' : 'text-slate-800'}`}>
+                              {item.name}
+                              {item.category && <span className="text-[10px] bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded-full font-normal">{item.category}</span>}
+                            </h4>
+                            <div className="text-xs text-slate-500 mt-0.5">購入於 {item.purchaseDate}</div>
+                          </div>
+                          {item.isRetired ? (
+                            <span className="bg-slate-100 text-slate-500 text-[10px] px-2 py-0.5 rounded-full font-bold border border-slate-200">
+                              已淘汰 ({item.retireDate})
+                            </span>
+                          ) : (
+                            <span className="bg-[#D4F5ED] text-[#35a788] text-[10px] px-2 py-0.5 rounded-full font-bold border border-[#D4F5ED]">
+                              分攤中
+                            </span>
+                          )}
                         </div>
                         <div className="bg-slate-50 rounded-lg p-3 grid grid-cols-3 gap-2 text-center divide-x divide-slate-200">
                           <div>
@@ -979,7 +1197,7 @@
                             <div className="font-semibold text-slate-700">${item.price.toLocaleString()}</div>
                           </div>
                           <div>
-                            <div className="text-[10px] text-slate-500 uppercase tracking-wider mb-1">已用天數</div>
+                            <div className="text-[10px] text-slate-500 uppercase tracking-wider mb-1">使用天數</div>
                             <div className="font-semibold text-slate-700">{daysUsed} 天</div>
                           </div>
                           <div>
@@ -1012,7 +1230,7 @@
               }
             </h1>
             
-            {/* --- 右上角頭像：加上附圖顏色的精緻薄荷綠外框 border-[#C7F3EC] --- */}
+            {/* 右上角圓形頭像：加上代表您圖片的粉綠色外框 border-[#C7F3EC] */}
             <button 
               onClick={(e) => { e.stopPropagation(); setIsProfileOpen(true); }}
               className="w-8 h-8 rounded-full overflow-hidden border-2 border-[#C7F3EC] bg-slate-100 flex items-center justify-center shrink-0 shadow-sm"
@@ -1093,20 +1311,30 @@
                 </div>
                 <div className="p-6 overflow-y-auto">
                   <form onSubmit={handleEditSubmit} className="space-y-4">
+                    {/* 收支紀錄編輯 */}
                     {editDialog.type === 'transaction' && (
                       <>
                         <div className="flex gap-2 p-1 bg-slate-100 rounded-lg">
                           <button type="button" onClick={() => setEditDialog({...editDialog, data: {...editDialog.data, type: 'expense'}})} className={`flex-1 py-2 rounded-md text-sm font-medium transition-colors ${editDialog.data.type === 'expense' ? 'bg-white shadow-sm text-rose-500' : 'text-slate-500'}`}>支出</button>
                           <button type="button" onClick={() => setEditDialog({...editDialog, data: {...editDialog.data, type: 'income'}})} className={`flex-1 py-2 rounded-md text-sm font-medium transition-colors ${editDialog.data.type === 'income' ? 'bg-white shadow-sm text-[#35a788]' : 'text-slate-500'}`}>收入</button>
                         </div>
-                        <div className="grid grid-cols-2 gap-3">
+                        <div className="grid grid-cols-3 gap-2">
                           <div>
                             <label className="text-xs text-slate-500 ml-1 block mb-1">金額</label>
-                            <input type="number" required value={editDialog.data.amount} onChange={e => setEditDialog({...editDialog, data: {...editDialog.data, amount: e.target.value}})} className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-slate-800 focus:outline-none focus:ring-1 focus:ring-teal-500" />
+                            <input type="number" required value={editDialog.data.amount} onChange={e => setEditDialog({...editDialog, data: {...editDialog.data, amount: e.target.value}})} className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2 py-2 text-slate-800 text-sm focus:outline-none focus:ring-1 focus:ring-teal-500" />
+                          </div>
+                          <div>
+                            <label className="text-xs text-slate-500 ml-1 block mb-1">分類</label>
+                            <CategorySelector 
+                              value={editDialog.data.category || ''} 
+                              onChange={cat => setEditDialog({...editDialog, data: {...editDialog.data, category: cat}})} 
+                              uniqueCategories={uniqueCategories}
+                              placeholder="分類"
+                            />
                           </div>
                           <div>
                             <label className="text-xs text-slate-500 ml-1 block mb-1">日期</label>
-                            <input type="date" required value={editDialog.data.date} onChange={e => setEditDialog({...editDialog, data: {...editDialog.data, date: e.target.value}})} className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-slate-800 focus:outline-none focus:ring-1 focus:ring-teal-500" />
+                            <input type="date" required value={editDialog.data.date} onChange={e => setEditDialog({...editDialog, data: {...editDialog.data, date: e.target.value}})} className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2 py-2 text-slate-800 text-sm focus:outline-none focus:ring-1 focus:ring-teal-500" />
                           </div>
                         </div>
                         <div>
@@ -1116,6 +1344,7 @@
                       </>
                     )}
 
+                    {/* 訂閱編輯 */}
                     {editDialog.type === 'subscription' && (
                       <>
                         <div className="flex items-center justify-between p-3 bg-slate-50 rounded-xl border border-slate-200 mb-2">
@@ -1146,6 +1375,7 @@
                               <option value="monthly">每月</option>
                               <option value="quarterly">每季</option>
                               <option value="yearly">每年</option>
+                              <option value="buyout">買斷 (一次性)</option>
                             </select>
                           </div>
                         </div>
@@ -1156,21 +1386,61 @@
                       </>
                     )}
 
+                    {/* 物品編輯 */}
                     {editDialog.type === 'item' && (
                       <>
-                        <p className="text-xs text-teal-600 mb-2 bg-teal-50 p-2 rounded-lg leading-relaxed">變更此處的名稱與金額，將會同步更新您的收支紀錄中對應的項目。</p>
+                        <div className="flex items-center justify-between p-3 bg-slate-50 rounded-xl border border-slate-200 mb-2">
+                          <div>
+                            <label className="text-sm font-bold text-slate-700 block">淘汰此物品</label>
+                            <span className="text-xs text-slate-500">淘汰後天數將凍結，不再增加每日成本</span>
+                          </div>
+                          <button 
+                            type="button"
+                            onClick={() => {
+                              const nextRetired = !editDialog.data.isRetired;
+                              setEditDialog({
+                                ...editDialog,
+                                data: {
+                                  ...editDialog.data,
+                                  isRetired: nextRetired,
+                                  retireDate: nextRetired ? getTodayString() : ''
+                                }
+                              });
+                            }}
+                            className={`w-12 h-6 rounded-full transition-colors relative flex items-center ${editDialog.data.isRetired ? 'bg-teal-500' : 'bg-slate-300'}`}
+                          >
+                            <span className={`w-4 h-4 bg-white rounded-full absolute shadow-sm transition-transform duration-200 ease-in-out ${editDialog.data.isRetired ? 'translate-x-7' : 'translate-x-1'}`}></span>
+                          </button>
+                        </div>
+
+                        {editDialog.data.isRetired && (
+                          <div className="animate-in slide-in-from-top-2 duration-200 mb-3">
+                            <label className="text-xs text-slate-500 ml-1 block mb-1">淘汰日期</label>
+                            <input type="date" required value={editDialog.data.retireDate} onChange={e => setEditDialog({...editDialog, data: {...editDialog.data, retireDate: e.target.value}})} className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-slate-800 focus:outline-none focus:ring-1 focus:ring-teal-500" />
+                          </div>
+                        )}
+
                         <div>
                           <label className="text-xs text-slate-500 ml-1 block mb-1">物品名稱</label>
                           <input type="text" required value={editDialog.data.name} onChange={e => setEditDialog({...editDialog, data: {...editDialog.data, name: e.target.value}})} className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-slate-800 focus:outline-none focus:ring-1 focus:ring-teal-500" />
                         </div>
-                        <div className="grid grid-cols-2 gap-3">
+                        <div className="grid grid-cols-3 gap-2">
                           <div>
                             <label className="text-xs text-slate-500 ml-1 block mb-1">總金額</label>
-                            <input type="number" required value={editDialog.data.price} onChange={e => setEditDialog({...editDialog, data: {...editDialog.data, price: e.target.value}})} className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-slate-800 focus:outline-none focus:ring-1 focus:ring-teal-500" />
+                            <input type="number" required value={editDialog.data.price} onChange={e => setEditDialog({...editDialog, data: {...editDialog.data, price: e.target.value}})} className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2 py-2 text-slate-800 text-sm focus:outline-none focus:ring-1 focus:ring-teal-500" />
+                          </div>
+                          <div>
+                            <label className="text-xs text-slate-500 ml-1 block mb-1">分類</label>
+                            <CategorySelector 
+                              value={editDialog.data.category || ''} 
+                              onChange={cat => setEditDialog({...editDialog, data: {...editDialog.data, category: cat}})} 
+                              uniqueCategories={uniqueCategories}
+                              placeholder="分類"
+                            />
                           </div>
                           <div>
                             <label className="text-xs text-slate-500 ml-1 block mb-1">購買日期</label>
-                            <input type="date" required value={editDialog.data.purchaseDate} onChange={e => setEditDialog({...editDialog, data: {...editDialog.data, purchaseDate: e.target.value}})} className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-slate-800 focus:outline-none focus:ring-1 focus:ring-teal-500" />
+                            <input type="date" required value={editDialog.data.purchaseDate} onChange={e => setEditDialog({...editDialog, data: {...editDialog.data, purchaseDate: e.target.value}})} className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2 py-2 text-slate-800 text-sm focus:outline-none focus:ring-1 focus:ring-teal-500" />
                           </div>
                         </div>
                       </>
@@ -1210,11 +1480,11 @@
                     </div>
                   )}
 
-                  {/* 頭像上傳：外框換上附圖代表的粉綠色 border-[#C7F3EC] */}
+                  {/* 頭像框設定：換上您附圖中馬卡龍粉綠色 border-[#C7F3EC] */}
                   <div className="flex justify-center">
                     <div className="relative w-24 h-24 group">
                       <input type="file" onChange={handleAvatarUpload} className="absolute inset-0 opacity-0 z-10 cursor-pointer" accept="image/*" />
-                      <div className="w-24 h-24 rounded-full overflow-hidden border-4 border-[#C7F3EC] bg-slate-50 flex items-center justify-center text-teal-300 shadow-sm">
+                      <div className="w-24 h-24 rounded-full overflow-hidden border-4 border-[#C7F3EC] bg-slate-50 flex items-center justify-center text-teal-300">
                         {profileData?.avatar ? <img src={profileData.avatar} className="w-full h-full object-cover" /> : <User size={40} className="text-[#35a788]" />}
                       </div>
                       <div className="absolute bottom-0 right-0 bg-teal-500 w-8 h-8 flex items-center justify-center rounded-full text-white border-2 border-white">
